@@ -23,10 +23,12 @@ import skills from './routes/skills.js'
 import webhooks from './routes/webhooks.js'
 import aiVoices from './routes/aiVoices.js'
 import queues from './routes/queues.js'
+import auth from './routes/auth.js'
 import { requestLogger, errorHandler } from './middleware/logger.js'
 import { checkDatabaseConnection, closeDatabaseConnection } from './db/index.js'
 import { runDatabaseMigrations } from './db/migrate.js'
 import { closeQueues, getImageQueue, getMediaQueue, getVideoQueue } from './queue/queues.js'
+import { requireAdminMiddleware, requireAuth } from './auth/access.js'
 
 await runDatabaseMigrations()
 await checkDatabaseConnection()
@@ -61,6 +63,13 @@ app.get('/api/v1/health', async (c) => {
 
 // API routes
 const api = new Hono()
+api.route('/auth', auth)
+api.use('*', requireAuth)
+api.use('/agent-configs', requireAdminMiddleware)
+api.use('/agent-configs/*', requireAdminMiddleware)
+api.use('/skills', requireAdminMiddleware)
+api.use('/skills/*', requireAdminMiddleware)
+api.use('/ai-voices/sync', requireAdminMiddleware)
 api.route('/dramas', dramas)
 api.route('/episodes', episodes)
 api.route('/storyboards', storyboards)

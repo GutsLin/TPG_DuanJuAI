@@ -5,12 +5,17 @@ import { success, badRequest } from '../utils/response.js'
 import { mergeEpisodeVideos } from '../services/ffmpeg-merge.js'
 import { toSnakeCase } from '../utils/transform.js'
 import { logTaskError, logTaskStart, logTaskSuccess } from '../utils/task-logger.js'
+import { getDramaIdByEpisodeId, requireResolvedDramaRole } from '../auth/access.js'
 
 const app = new Hono()
 
 // POST /episodes/:id/merge — 拼接全集视频
 app.post('/episodes/:id/merge', async (c) => {
   const episodeId = Number(c.req.param('id'))
+  const dramaId = await getDramaIdByEpisodeId(episodeId)
+  const forbidden = await requireResolvedDramaRole(c, dramaId, 'editor')
+  if (forbidden) return forbidden
+
   const [ep] = await db.select().from(schema.episodes).where(eq(schema.episodes.id, episodeId))
   if (!ep) return badRequest(c, 'Episode not found')
 
@@ -28,6 +33,10 @@ app.post('/episodes/:id/merge', async (c) => {
 // GET /episodes/:id/merge — 查询拼接状态
 app.get('/episodes/:id/merge', async (c) => {
   const episodeId = Number(c.req.param('id'))
+  const dramaId = await getDramaIdByEpisodeId(episodeId)
+  const forbidden = await requireResolvedDramaRole(c, dramaId, 'viewer')
+  if (forbidden) return forbidden
+
   const merges = await db.select().from(schema.videoMerges)
     .where(eq(schema.videoMerges.episodeId, episodeId))
 

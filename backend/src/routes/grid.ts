@@ -6,6 +6,12 @@ import { generateImage } from '../services/image-generation.js'
 import { splitGridImage } from '../services/grid-split.js'
 import { createAgent } from '../agents/index.js'
 import { logTaskError, logTaskPayload, logTaskProgress } from '../utils/task-logger.js'
+import {
+  getDramaIdByEpisodeId,
+  getDramaIdByImageGenerationId,
+  getDramaIdByStoryboardId,
+  requireResolvedDramaRole,
+} from '../auth/access.js'
 
 const app = new Hono()
 
@@ -397,6 +403,9 @@ app.post('/prompt', async (c) => {
 
   if (!storyboard_ids?.length) return badRequest(c, 'storyboard_ids required')
   if (!rows || !cols) return badRequest(c, 'rows and cols required')
+  const accessDramaId = drama_id ? Number(drama_id) : await getDramaIdByEpisodeId(Number(episode_id || 0))
+  const forbidden = await requireResolvedDramaRole(c, accessDramaId, 'editor')
+  if (forbidden) return forbidden
 
   const storyboards = (await Promise.all(storyboard_ids.map(async (id: number) => {
     const [sb] = await db.select().from(schema.storyboards).where(eq(schema.storyboards.id, id))
@@ -493,6 +502,9 @@ app.post('/generate', async (c) => {
 
   if (!storyboard_ids?.length) return badRequest(c, 'storyboard_ids required')
   if (!rows || !cols) return badRequest(c, 'rows and cols required')
+  const accessDramaId = drama_id ? Number(drama_id) : await getDramaIdByStoryboardId(Number(storyboard_ids[0]))
+  const forbidden = await requireResolvedDramaRole(c, accessDramaId, 'editor')
+  if (forbidden) return forbidden
 
   const storyboards = (await Promise.all(storyboard_ids.map(async (id: number) => {
     const [sb] = await db.select().from(schema.storyboards).where(eq(schema.storyboards.id, id))
@@ -561,6 +573,12 @@ app.post('/split', async (c) => {
   if (!image_generation_id) return badRequest(c, 'image_generation_id required')
   if (!rows || !cols) return badRequest(c, 'rows and cols required')
   if (!assignments?.length) return badRequest(c, 'assignments required')
+  const accessDramaId = await getDramaIdByImageGenerationId(Number(image_generation_id))
+  const forbidden = await requireResolvedDramaRole(c, accessDramaId, 'editor')
+  if (forbidden) return forbidden
+  const assignmentStoryboardIds = assignments.map((item: any) => Number(item.storyboard_id)).filter(Boolean)
+  const assignmentDramaIds = await Promise.all(assignmentStoryboardIds.map((id: number) => getDramaIdByStoryboardId(id)))
+  if (assignmentDramaIds.some(id => id !== accessDramaId)) return badRequest(c, 'assignments 中存在其他项目的分镜')
 
   const [imgRecord] = await db.select().from(schema.imageGenerations)
     .where(eq(schema.imageGenerations.id, image_generation_id))
@@ -601,6 +619,10 @@ app.post('/split', async (c) => {
 // GET /grid/status/:id
 app.get('/status/:id', async (c) => {
   const id = Number(c.req.param('id'))
+  const dramaId = await getDramaIdByImageGenerationId(id)
+  const forbidden = await requireResolvedDramaRole(c, dramaId, 'viewer')
+  if (forbidden) return forbidden
+
   const [row] = await db.select().from(schema.imageGenerations)
     .where(eq(schema.imageGenerations.id, id))
   if (!row) return badRequest(c, 'Not found')

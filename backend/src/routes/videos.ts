@@ -4,6 +4,13 @@ import { db, schema } from '../db/index.js'
 import { success, created, badRequest } from '../utils/response.js'
 import { generateVideo } from '../services/video-generation.js'
 import { logTaskError, logTaskPayload, logTaskStart, logTaskSuccess } from '../utils/task-logger.js'
+import {
+  getDramaIdByStoryboardId,
+  getDramaIdByVideoGenerationId,
+  logOperation,
+  requireDramaRole,
+  requireResolvedDramaRole,
+} from '../auth/access.js'
 
 const app = new Hono()
 
@@ -33,10 +40,19 @@ async function enqueueVideo(body: any) {
   })
 }
 
+async function resolveVideoRequestDramaId(body: any) {
+  if (body.drama_id) return Number(body.drama_id)
+  if (body.storyboard_id) return getDramaIdByStoryboardId(Number(body.storyboard_id))
+  return null
+}
+
 // POST /videos — Generate video
 app.post('/', async (c) => {
   const body = await c.req.json()
   if (!body.prompt) return badRequest(c, 'prompt is required')
+  const dramaId = await resolveVideoRequestDramaId(body)
+  const forbidden = await requireResolvedDramaRole(c, dramaId, 'editor')
+  if (forbidden) return forbidden
 
   try {
     logTaskStart('VideoAPI', 'generate', {
@@ -50,6 +66,7 @@ app.post('/', async (c) => {
 
     const [record] = await db.select().from(schema.videoGenerations)
       .where(eq(schema.videoGenerations.id, id))
+    await logOperation(c, { action: 'video.generate', dramaId, resourceType: 'video_generation', resourceId: id })
     logTaskSuccess('VideoAPI', 'generate', { generationId: id, provider: record?.provider })
     return created(c, record)
   } catch (err: any) {
@@ -64,6 +81,13 @@ app.post('/batch', async (c) => {
   const items: any[] = Array.isArray(body.items) ? body.items : []
   if (!items.length) return badRequest(c, 'items is required')
   if (items.some(item => !item.prompt)) return badRequest(c, 'every item requires prompt')
+  const dramaIds = await Promise.all(items.map(item => resolveVideoRequestDramaId(item)))
+  const uniqueDramaIds = [...new Set(dramaIds.filter((id): id is number => typeof id === 'number'))]
+  if (uniqueDramaIds.length === 0) return badRequest(c, 'items requires drama_id or storyboard_id')
+  for (const dramaId of uniqueDramaIds) {
+    const forbidden = await requireDramaRole(c, dramaId, 'editor')
+    if (forbidden) return forbidden
+  }
 
   const settled = await Promise.allSettled(items.map(item => enqueueVideo(item)))
   const ids = settled
@@ -79,6 +103,10 @@ app.post('/batch', async (c) => {
 // GET /videos/:id
 app.get('/:id', async (c) => {
   const id = Number(c.req.param('id'))
+  const dramaId = await getDramaIdByVideoGenerationId(id)
+  const forbidden = await requireResolvedDramaRole(c, dramaId, 'viewer')
+  if (forbidden) return forbidden
+
   const [row] = await db.select().from(schema.videoGenerations)
     .where(eq(schema.videoGenerations.id, id))
   return success(c, row || null)
@@ -88,6 +116,10 @@ app.get('/:id', async (c) => {
 app.get('/', async (c) => {
   const storyboardId = c.req.query('storyboard_id')
   const dramaId = c.req.query('drama_id')
+  let accessDramaId: number | null = dramaId ? Number(dramaId) : null
+  if (!accessDramaId && storyboardId) accessDramaId = await getDramaIdByStoryboardId(Number(storyboardId))
+  const forbidden = await requireResolvedDramaRole(c, accessDramaId, 'viewer')
+  if (forbidden) return forbidden
 
   let rows = await db.select().from(schema.videoGenerations)
 
@@ -100,7 +132,12 @@ app.get('/', async (c) => {
 // DELETE /videos/:id
 app.delete('/:id', async (c) => {
   const id = Number(c.req.param('id'))
+  const dramaId = await getDramaIdByVideoGenerationId(id)
+  const forbidden = await requireResolvedDramaRole(c, dramaId, 'editor')
+  if (forbidden) return forbidden
+
   await db.delete(schema.videoGenerations).where(eq(schema.videoGenerations.id, id))
+  await logOperation(c, { action: 'video.delete', dramaId, resourceType: 'video_generation', resourceId: id })
   return success(c)
 })
 

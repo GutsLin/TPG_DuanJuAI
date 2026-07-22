@@ -22,6 +22,13 @@
       "when": 1784704976619,
       "tag": "0002_volatile_george_stacy",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1784765400000,
+      "tag": "0003_user_rbac_logs",
+      "breakpoints": true
     }
   ]
 }

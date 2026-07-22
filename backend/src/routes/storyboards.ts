@@ -5,6 +5,7 @@ import { success, created, now, badRequest } from '../utils/response.js'
 import { toSnakeCase } from '../utils/transform.js'
 import { generateTTS } from '../services/tts-generation.js'
 import { logTaskError, logTaskPayload, logTaskProgress, logTaskStart, logTaskSuccess } from '../utils/task-logger.js'
+import { getDramaIdByEpisodeId, getDramaIdByStoryboardId, logOperation, requireResolvedDramaRole } from '../auth/access.js'
 
 const app = new Hono()
 
@@ -64,6 +65,10 @@ async function validateStoryboardBindings(episodeId: number, sceneId: number | n
 // POST /storyboards
 app.post('/', async (c) => {
   const body = await c.req.json()
+  const dramaId = await getDramaIdByEpisodeId(Number(body.episode_id))
+  const forbidden = await requireResolvedDramaRole(c, dramaId, 'editor')
+  if (forbidden) return forbidden
+
   const ts = now()
   logTaskStart('StoryboardAPI', 'create', {
     episodeId: body.episode_id,
@@ -86,6 +91,7 @@ app.post('/', async (c) => {
     updatedAt: ts,
   }).returning()
   await syncStoryboardCharacters(result.id, body.character_ids || [])
+  await logOperation(c, { action: 'storyboard.create', dramaId, resourceType: 'storyboard', resourceId: result.id })
   logTaskSuccess('StoryboardAPI', 'create', {
     storyboardId: result.id,
     episodeId: result.episodeId,
@@ -101,6 +107,10 @@ app.post('/', async (c) => {
 app.put('/:id', async (c) => {
   const id = Number(c.req.param('id'))
   const body = await c.req.json()
+  const dramaId = await getDramaIdByStoryboardId(id)
+  const forbidden = await requireResolvedDramaRole(c, dramaId, 'editor')
+  if (forbidden) return forbidden
+
   const [storyboard] = await db.select().from(schema.storyboards).where(eq(schema.storyboards.id, id))
   if (!storyboard) return badRequest(c, '镜头不存在')
   logTaskStart('StoryboardAPI', 'update', {
@@ -137,6 +147,7 @@ app.put('/:id', async (c) => {
 
   await db.update(schema.storyboards).set(updates).where(eq(schema.storyboards.id, id))
   if ('character_ids' in body) await syncStoryboardCharacters(id, body.character_ids || [])
+  await logOperation(c, { action: 'storyboard.update', dramaId, resourceType: 'storyboard', resourceId: id, detail: Object.keys(updates) })
   logTaskSuccess('StoryboardAPI', 'update', {
     storyboardId: id,
     updatedFields: Object.keys(updates),
@@ -148,6 +159,10 @@ app.put('/:id', async (c) => {
 // POST /storyboards/:id/generate-tts
 app.post('/:id/generate-tts', async (c) => {
   const id = Number(c.req.param('id'))
+  const dramaId = await getDramaIdByStoryboardId(id)
+  const forbidden = await requireResolvedDramaRole(c, dramaId, 'editor')
+  if (forbidden) return forbidden
+
   const [sb] = await db.select().from(schema.storyboards).where(eq(schema.storyboards.id, id))
   if (!sb) return badRequest(c, '镜头不存在')
   const parsedDialogue = parseDialogueForTTS(sb.dialogue)
@@ -204,9 +219,14 @@ app.post('/:id/generate-tts', async (c) => {
 // DELETE /storyboards/:id
 app.delete('/:id', async (c) => {
   const id = Number(c.req.param('id'))
+  const dramaId = await getDramaIdByStoryboardId(id)
+  const forbidden = await requireResolvedDramaRole(c, dramaId, 'editor')
+  if (forbidden) return forbidden
+
   logTaskStart('StoryboardAPI', 'delete', { storyboardId: id })
   await db.delete(schema.storyboardCharacters).where(eq(schema.storyboardCharacters.storyboardId, id))
   await db.delete(schema.storyboards).where(eq(schema.storyboards.id, id))
+  await logOperation(c, { action: 'storyboard.delete', dramaId, resourceType: 'storyboard', resourceId: id })
   logTaskSuccess('StoryboardAPI', 'delete', { storyboardId: id })
   return success(c)
 })

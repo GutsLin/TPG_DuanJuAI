@@ -6,12 +6,17 @@ import { composeStoryboard } from '../services/ffmpeg-compose.js'
 import { logTaskError, logTaskStart, logTaskSuccess } from '../utils/task-logger.js'
 import { toSnakeCase } from '../utils/transform.js'
 import { enqueueStoryboardCompose } from '../queue/jobs.js'
+import { getDramaIdByEpisodeId, getDramaIdByStoryboardId, requireResolvedDramaRole } from '../auth/access.js'
 
 const app = new Hono()
 
 // POST /storyboards/:id/compose — 合成单个镜头
 app.post('/storyboards/:id/compose', async (c) => {
   const id = Number(c.req.param('id'))
+  const dramaId = await getDramaIdByStoryboardId(id)
+  const forbidden = await requireResolvedDramaRole(c, dramaId, 'editor')
+  if (forbidden) return forbidden
+
   try {
     logTaskStart('ComposeAPI', 'single-compose', { storyboardId: id })
     const composedUrl = await composeStoryboard(id)
@@ -26,6 +31,10 @@ app.post('/storyboards/:id/compose', async (c) => {
 // POST /episodes/:id/compose-all — 批量合成全部镜头
 app.post('/episodes/:id/compose-all', async (c) => {
   const episodeId = Number(c.req.param('id'))
+  const dramaId = await getDramaIdByEpisodeId(episodeId)
+  const forbidden = await requireResolvedDramaRole(c, dramaId, 'editor')
+  if (forbidden) return forbidden
+
   const storyboards = await db.select().from(schema.storyboards)
     .where(eq(schema.storyboards.episodeId, episodeId))
     .orderBy(schema.storyboards.storyboardNumber)
@@ -65,6 +74,10 @@ app.post('/episodes/:id/compose-all', async (c) => {
 // GET /episodes/:id/compose-status — 查询批量合成状态
 app.get('/episodes/:id/compose-status', async (c) => {
   const episodeId = Number(c.req.param('id'))
+  const dramaId = await getDramaIdByEpisodeId(episodeId)
+  const forbidden = await requireResolvedDramaRole(c, dramaId, 'viewer')
+  if (forbidden) return forbidden
+
   const storyboards = await db.select().from(schema.storyboards)
     .where(eq(schema.storyboards.episodeId, episodeId))
     .orderBy(schema.storyboards.storyboardNumber)

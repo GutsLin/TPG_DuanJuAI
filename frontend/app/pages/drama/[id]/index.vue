@@ -26,12 +26,16 @@
           </div>
         </div>
       </div>
-      <button class="btn btn-primary" @click="openAddEpisode">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
-          <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-        </svg>
-        添加集
-      </button>
+      <div class="head-actions">
+        <button class="btn" @click="openMembers">成员</button>
+        <button class="btn" @click="openLogs">日志</button>
+        <button class="btn btn-primary" @click="openAddEpisode">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+          </svg>
+          添加集
+        </button>
+      </div>
     </div>
 
     <!-- Episode List -->
@@ -146,6 +150,59 @@
         </div>
       </div>
     </div>
+
+    <div v-if="membersDialog" class="dialog-mask" @click.self="membersDialog = false">
+      <div class="card side-dialog">
+        <div class="dialog-head">
+          <div>
+            <div class="dialog-kicker">Project Members</div>
+            <div class="dialog-title small">项目成员</div>
+          </div>
+          <button class="back-btn" @click="membersDialog = false">关闭</button>
+        </div>
+        <form class="member-form" @submit.prevent="saveMember">
+          <input v-model="memberForm.email" class="input" type="email" placeholder="成员邮箱" required />
+          <select v-model="memberForm.role" class="input select-input">
+            <option value="viewer">viewer</option>
+            <option value="editor">editor</option>
+            <option value="owner">owner</option>
+          </select>
+          <button class="btn btn-primary" type="submit">保存</button>
+        </form>
+        <div class="member-list">
+          <div v-for="m in members" :key="m.user_id" class="member-row">
+            <div>
+              <div class="member-name">{{ m.user?.name || '未知用户' }}</div>
+              <div class="member-email">{{ m.user?.email }}</div>
+            </div>
+            <span class="role-chip">{{ m.role }}</span>
+            <button class="btn btn-ghost btn-sm" @click="removeMember(m)">移除</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="logsDialog" class="dialog-mask" @click.self="logsDialog = false">
+      <div class="card side-dialog">
+        <div class="dialog-head">
+          <div>
+            <div class="dialog-kicker">Operation Logs</div>
+            <div class="dialog-title small">操作日志</div>
+          </div>
+          <button class="back-btn" @click="logsDialog = false">关闭</button>
+        </div>
+        <div class="log-list">
+          <div v-for="log in logs" :key="log.id" class="log-row">
+            <div class="log-main">
+              <span class="log-action">{{ log.action }}</span>
+              <span class="log-user">{{ log.user?.name || '系统' }}</span>
+            </div>
+            <div class="log-meta">{{ fmtLogDate(log.created_at) }}</div>
+          </div>
+          <div v-if="!logs.length" class="empty-logs">暂无操作记录</div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -165,6 +222,11 @@ const audioConfigs = ref([])
 const newEpisodeImageConfigId = ref(null)
 const newEpisodeVideoConfigId = ref(null)
 const newEpisodeAudioConfigId = ref(null)
+const membersDialog = ref(false)
+const logsDialog = ref(false)
+const members = ref([])
+const logs = ref([])
+const memberForm = reactive({ email: '', role: 'viewer' })
 
 function hasScript(ep) { return !!(ep.script_content || ep.scriptContent) }
 
@@ -211,6 +273,55 @@ function openAddEpisode() {
   addDialog.value = true
 }
 
+async function openMembers() {
+  membersDialog.value = true
+  await loadMembers()
+}
+
+async function loadMembers() {
+  try {
+    members.value = await dramaAPI.members(dramaId)
+  } catch (e) {
+    toast.error(e.message)
+  }
+}
+
+async function saveMember() {
+  try {
+    await dramaAPI.upsertMember(dramaId, memberForm)
+    toast.success('成员已保存')
+    memberForm.email = ''
+    memberForm.role = 'viewer'
+    await loadMembers()
+  } catch (e) {
+    toast.error(e.message)
+  }
+}
+
+async function removeMember(member) {
+  if (!confirm(`确定移除 ${member.user?.email || member.user_id}？`)) return
+  try {
+    await dramaAPI.removeMember(dramaId, member.user_id)
+    toast.success('已移除')
+    await loadMembers()
+  } catch (e) {
+    toast.error(e.message)
+  }
+}
+
+async function openLogs() {
+  logsDialog.value = true
+  try {
+    logs.value = await dramaAPI.logs(dramaId)
+  } catch (e) {
+    toast.error(e.message)
+  }
+}
+
+function fmtLogDate(s) {
+  return s ? new Date(s).toLocaleString('zh-CN') : ''
+}
+
 async function addEpisode() {
   try {
     creatingEpisode.value = true
@@ -250,6 +361,7 @@ onMounted(() => { load(); loadConfigs() })
   gap: 20px;
 }
 .head-left { display: flex; align-items: flex-start; gap: 12px; }
+.head-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 .head-info { display: flex; flex-direction: column; gap: 8px; }
 
 .back-btn {
@@ -386,6 +498,7 @@ onMounted(() => { load(); loadConfigs() })
 }
 .dialog-title-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .dialog-title { font-size: 28px; font-weight: 800; color: var(--text-0); letter-spacing: -0.03em; }
+.dialog-title.small { font-size: 22px; }
 .dialog-badge {
   display: inline-flex;
   align-items: center;
@@ -476,6 +589,54 @@ onMounted(() => { load(); loadConfigs() })
 .field { display: flex; flex-direction: column; gap: 6px; }
 .field-label { font-size: 12px; font-weight: 600; color: var(--text-1); }
 .field-hint { font-size: 12px; color: var(--text-3); }
+.side-dialog {
+  width: min(620px, 100%);
+  max-height: calc(100vh - 48px);
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow: hidden;
+}
+.member-form {
+  display: grid;
+  grid-template-columns: 1fr 120px auto;
+  gap: 8px;
+}
+.select-input { appearance: auto; }
+.member-list,
+.log-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+}
+.member-row,
+.log-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: rgba(255,255,255,0.72);
+}
+.member-row > div,
+.log-main { flex: 1; min-width: 0; }
+.member-name,
+.log-action { font-size: 13px; font-weight: 700; color: var(--text-0); }
+.member-email,
+.log-user,
+.log-meta,
+.empty-logs { font-size: 12px; color: var(--text-3); }
+.role-chip {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent-text);
+  background: var(--accent-bg);
+  padding: 3px 8px;
+  border-radius: 999px;
+}
 
 @media (max-width: 860px) {
   .dialog {

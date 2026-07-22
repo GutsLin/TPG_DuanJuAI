@@ -1,7 +1,22 @@
 const BASE = '/api/v1'
+const TOKEN_KEY = 'tpg_auth_token'
+
+export function getAuthToken() {
+  if (typeof localStorage === 'undefined') return ''
+  return localStorage.getItem(TOKEN_KEY) || ''
+}
+
+export function setAuthToken(token: string) {
+  if (typeof localStorage === 'undefined') return
+  if (token) localStorage.setItem(TOKEN_KEY, token)
+  else localStorage.removeItem(TOKEN_KEY)
+}
 
 async function req<T = any>(method: string, path: string, body?: any): Promise<T> {
-  const opts: RequestInit = { method, headers: { 'Content-Type': 'application/json' } }
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  const token = getAuthToken()
+  if (token) headers.Authorization = `Bearer ${token}`
+  const opts: RequestInit = { method, headers }
   if (body) opts.body = JSON.stringify(body)
 
   const start = performance.now()
@@ -13,6 +28,12 @@ async function req<T = any>(method: string, path: string, body?: any): Promise<T
     const ms = Math.round(performance.now() - start)
 
     if (!resp.ok || (json.code && json.code >= 400)) {
+      if (resp.status === 401) {
+        setAuthToken('')
+        if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
+          navigateTo('/login')
+        }
+      }
       console.log(`%c[API] %c${method} ${path} %c${resp.status} %c${ms}ms`, 'color:#888', 'color:#ef5350', 'color:#ef5350;font-weight:bold', 'color:#888', json.message || '')
       throw new Error(json.message || `${resp.status}`)
     }
@@ -41,6 +62,18 @@ export const dramaAPI = {
   create: (data: any) => api.post('/dramas', data),
   update: (id: number, data: any) => api.put(`/dramas/${id}`, data),
   del: (id: number) => api.del(`/dramas/${id}`),
+  members: (id: number) => api.get(`/dramas/${id}/members`),
+  upsertMember: (id: number, data: { email: string; role: string }) => api.post(`/dramas/${id}/members`, data),
+  removeMember: (id: number, userId: number) => api.del(`/dramas/${id}/members/${userId}`),
+  logs: (id: number) => api.get(`/dramas/${id}/logs`),
+}
+
+export const authAPI = {
+  register: (data: { email: string; password: string; name?: string }) => api.post('/auth/register', data),
+  login: (data: { email: string; password: string }) => api.post('/auth/login', data),
+  me: () => api.get('/auth/me'),
+  users: () => api.get('/auth/users'),
+  updateUser: (id: number, data: any) => api.put(`/auth/users/${id}`, data),
 }
 
 export const episodeAPI = {

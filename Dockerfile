@@ -54,6 +54,7 @@ ENV NODE_ENV=production
 ENV PORT=5679
 ENV DATABASE_URL=postgres://huobao:huobao@postgres:5432/huobao_drama
 ENV REDIS_URL=redis://redis:6379
+ENV AUTH_JWT_SECRET=change-this-to-a-long-random-secret
 
 EXPOSE 5679
 VOLUME ["/app/data"]

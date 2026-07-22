@@ -42,6 +42,51 @@ export const episodes = pgTable('episodes', {
   index('idx_episodes_drama_id').on(table.dramaId),
 ])
 
+export const users = pgTable('users', {
+  id: serial('id').primaryKey(),
+  email: text('email').notNull().unique(),
+  name: text('name').notNull(),
+  passwordHash: text('password_hash').notNull(),
+  role: text('role').notNull().default('creator'),
+  status: text('status').notNull().default('active'),
+  lastLoginAt: text('last_login_at'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+  deletedAt: text('deleted_at'),
+}, (table) => [
+  index('idx_users_status').on(table.status),
+])
+
+export const projectMembers = pgTable('project_members', {
+  id: serial('id').primaryKey(),
+  dramaId: integer('drama_id').notNull(),
+  userId: integer('user_id').notNull(),
+  role: text('role').notNull().default('viewer'),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+}, (table) => [
+  index('idx_project_members_user_id').on(table.userId),
+  index('idx_project_members_drama_id').on(table.dramaId),
+  uniqueIndex('uq_project_members_drama_user').on(table.dramaId, table.userId),
+])
+
+export const operationLogs = pgTable('operation_logs', {
+  id: serial('id').primaryKey(),
+  userId: integer('user_id'),
+  dramaId: integer('drama_id'),
+  action: text('action').notNull(),
+  resourceType: text('resource_type'),
+  resourceId: text('resource_id'),
+  detail: text('detail'),
+  ip: text('ip'),
+  userAgent: text('user_agent'),
+  createdAt: text('created_at').notNull(),
+}, (table) => [
+  index('idx_operation_logs_user_id').on(table.userId),
+  index('idx_operation_logs_drama_id').on(table.dramaId),
+  index('idx_operation_logs_created_at').on(table.createdAt),
+])
+
 export const characters = pgTable('characters', {
   id: serial('id').primaryKey(),
   dramaId: integer('drama_id').notNull(),

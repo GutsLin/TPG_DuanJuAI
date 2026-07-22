@@ -33,6 +33,12 @@
       </nav>
 
       <div class="header-right">
+        <div v-if="user" class="user-chip">
+          <span class="user-avatar">{{ user.name?.slice(0, 1) || '用' }}</span>
+          <span class="user-name">{{ user.name }}</span>
+          <span class="user-role">{{ user.role }}</span>
+        </div>
+        <button v-if="user" class="btn btn-ghost btn-sm" @click="logout">退出</button>
         <div class="film-strip">
           <span class="film-frame"></span>
           <span class="film-frame"></span>
@@ -49,9 +55,18 @@
 
 <script setup>
 import brandLogo from '~/assets/huobao-logo.png'
+import { useAuth } from '~/composables/useAuth'
 
 const route = useRoute()
 const showBrandImage = ref(true)
+const { user, loadMe, logout } = useAuth()
+
+onMounted(async () => {
+  if (route.path !== '/login') {
+    const current = await loadMe()
+    if (!current) await navigateTo('/login')
+  }
+})
 </script>
 
 <style scoped>
@@ -135,6 +150,29 @@ const showBrandImage = ref(true)
 }
 
 .header-right { display: flex; align-items: center; margin-left: auto; }
+.user-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-2);
+  margin-right: 8px;
+}
+.user-avatar {
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--accent-bg);
+  color: var(--accent-text);
+  font-size: 11px;
+  font-weight: 700;
+}
+.user-name { font-size: 12px; color: var(--text-1); }
+.user-role { font-size: 10px; color: var(--text-3); text-transform: uppercase; }
 
 /* Film strip decoration */
 .film-strip {

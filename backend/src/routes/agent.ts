@@ -5,6 +5,7 @@ import { Hono } from 'hono'
 import { createAgent, validAgentTypes } from '../agents/index.js'
 import { success, badRequest } from '../utils/response.js'
 import { logTaskError, logTaskPayload, logTaskProgress, logTaskStart, logTaskSuccess } from '../utils/task-logger.js'
+import { requireDramaRole } from '../auth/access.js'
 
 const app = new Hono()
 
@@ -43,6 +44,8 @@ app.post('/:type/chat', async (c) => {
     logTaskError('Agent', agentType, { reason: 'missing drama_id or episode_id' })
     return badRequest(c, 'drama_id and episode_id are required')
   }
+  const forbidden = await requireDramaRole(c, Number(drama_id), 'editor')
+  if (forbidden) return forbidden
 
   const agent = await createAgent(agentType, episode_id, drama_id)
   if (!agent) {

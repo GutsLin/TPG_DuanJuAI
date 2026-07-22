@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm'
 import { db, schema } from '../db/index.js'
 import { success, notFound, badRequest, now } from '../utils/response.js'
 import { toSnakeCaseArray, toSnakeCase } from '../utils/transform.js'
+import { getDramaIdByEpisodeId, logOperation, requireDramaRole, requireResolvedDramaRole } from '../auth/access.js'
 
 const app = new Hono()
 
@@ -10,6 +11,8 @@ const app = new Hono()
 app.post('/', async (c) => {
   const body = await c.req.json()
   if (!body.drama_id) return badRequest(c, 'drama_id required')
+  const forbidden = await requireDramaRole(c, Number(body.drama_id), 'editor')
+  if (forbidden) return forbidden
   if (!body.image_config_id || !body.video_config_id || !body.audio_config_id) {
     return badRequest(c, 'image_config_id, video_config_id and audio_config_id are required')
   }
@@ -31,6 +34,7 @@ app.post('/', async (c) => {
     createdAt: ts,
     updatedAt: ts,
   }).returning()
+  await logOperation(c, { action: 'episode.create', dramaId: body.drama_id, resourceType: 'episode', resourceId: ep.id })
   return success(c, {
     id: ep.id,
     episode_number: ep.episodeNumber,
@@ -44,6 +48,10 @@ app.post('/', async (c) => {
 // PUT /episodes/:id - Update episode fields
 app.put('/:id', async (c) => {
   const id = Number(c.req.param('id'))
+  const dramaId = await getDramaIdByEpisodeId(id)
+  const forbidden = await requireResolvedDramaRole(c, dramaId, 'editor')
+  if (forbidden) return forbidden
+
   const body = await c.req.json()
 
   const allowed = ['content', 'script_content', 'title', 'description', 'status']
@@ -62,12 +70,17 @@ app.put('/:id', async (c) => {
   if ('status' in updates) drizzleUpdates.status = updates.status
 
   await db.update(schema.episodes).set(drizzleUpdates).where(eq(schema.episodes.id, id))
+  await logOperation(c, { action: 'episode.update', dramaId, resourceType: 'episode', resourceId: id, detail: drizzleUpdates })
   return success(c)
 })
 
 // GET /episodes/:id/characters — characters linked to this episode
 app.get('/:id/characters', async (c) => {
   const episodeId = Number(c.req.param('id'))
+  const dramaId = await getDramaIdByEpisodeId(episodeId)
+  const forbidden = await requireResolvedDramaRole(c, dramaId, 'viewer')
+  if (forbidden) return forbidden
+
   const links = await db.select().from(schema.episodeCharacters)
     .where(eq(schema.episodeCharacters.episodeId, episodeId))
   const charIds = links.map(l => l.characterId)
@@ -80,6 +93,10 @@ app.get('/:id/characters', async (c) => {
 // GET /episodes/:id/scenes — scenes linked to this episode
 app.get('/:id/scenes', async (c) => {
   const episodeId = Number(c.req.param('id'))
+  const dramaId = await getDramaIdByEpisodeId(episodeId)
+  const forbidden = await requireResolvedDramaRole(c, dramaId, 'viewer')
+  if (forbidden) return forbidden
+
   const links = await db.select().from(schema.episodeScenes)
     .where(eq(schema.episodeScenes.episodeId, episodeId))
   const sceneIds = links.map(l => l.sceneId)
@@ -92,6 +109,10 @@ app.get('/:id/scenes', async (c) => {
 // GET /episodes/:episode_id/storyboards
 app.get('/:episode_id/storyboards', async (c) => {
   const episodeId = Number(c.req.param('episode_id'))
+  const dramaId = await getDramaIdByEpisodeId(episodeId)
+  const forbidden = await requireResolvedDramaRole(c, dramaId, 'viewer')
+  if (forbidden) return forbidden
+
   const rows = await db.select().from(schema.storyboards)
     .where(eq(schema.storyboards.episodeId, episodeId))
     .orderBy(schema.storyboards.storyboardNumber)
@@ -122,6 +143,10 @@ app.get('/:episode_id/storyboards', async (c) => {
 // GET /episodes/:id/pipeline-status — 流水线进度
 app.get('/:id/pipeline-status', async (c) => {
   const episodeId = Number(c.req.param('id'))
+  const dramaId = await getDramaIdByEpisodeId(episodeId)
+  const forbidden = await requireResolvedDramaRole(c, dramaId, 'viewer')
+  if (forbidden) return forbidden
+
   const [ep] = await db.select().from(schema.episodes).where(eq(schema.episodes.id, episodeId))
   if (!ep) return notFound(c, 'Episode not found')
 

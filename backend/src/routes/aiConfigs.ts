@@ -5,8 +5,17 @@ import { success, notFound, created, badRequest, now } from '../utils/response.j
 import { toSnakeCase } from '../utils/transform.js'
 import { joinProviderUrl } from '../services/adapters/url.js'
 import { redactUrl, logTaskError, logTaskProgress, logTaskSuccess } from '../utils/task-logger.js'
+import { getAuthUser, requireAdmin } from '../auth/access.js'
 
 const app = new Hono()
+
+function exposeConfig(row: typeof schema.aiServiceConfigs.$inferSelect, includeSecret = false) {
+  return {
+    ...toSnakeCase(row),
+    api_key: includeSecret ? row.apiKey : (row.apiKey ? '********' : ''),
+    model: row.model ? JSON.parse(row.model) : [],
+  }
+}
 
 const HUOBAO_PRESET_SERVICES = [
   { serviceType: 'text', label: '文本', provider: 'chatfire', baseUrl: 'https://api.chatfire.site', model: 'gemini-3-pro-preview', priority: 100 },
@@ -128,15 +137,16 @@ app.get('/', async (c) => {
   let rows = await db.select().from(schema.aiServiceConfigs)
   if (serviceType) rows = rows.filter(r => r.serviceType === serviceType)
 
-  const parsed = rows.map(r => ({
-    ...toSnakeCase(r),
-    model: r.model ? JSON.parse(r.model) : [],
-  }))
+  const includeSecret = getAuthUser(c)?.role === 'admin'
+  const parsed = rows.map(r => exposeConfig(r, includeSecret))
   return success(c, parsed)
 })
 
 // POST /ai-configs
 app.post('/', async (c) => {
+  const forbidden = requireAdmin(c)
+  if (forbidden) return forbidden
+
   const body = await c.req.json()
   const ts = now()
 
@@ -158,14 +168,14 @@ app.post('/', async (c) => {
     updatedAt: ts,
   }).returning()
 
-  return created(c, {
-    ...toSnakeCase(row),
-    model: row.model ? JSON.parse(row.model) : [],
-  })
+  return created(c, exposeConfig(row, true))
 })
 
 // POST /ai-configs/huobao-preset
 app.post('/huobao-preset', async (c) => {
+  const forbidden = requireAdmin(c)
+  if (forbidden) return forbidden
+
   const body = await c.req.json()
   const apiKey = String(body.api_key || '').trim()
   if (!apiKey) return badRequest(c, 'api_key is required')
@@ -227,10 +237,7 @@ app.post('/huobao-preset', async (c) => {
   }
 
   const configRows = await db.select().from(schema.aiServiceConfigs)
-  const configs = configRows.map(row => ({
-    ...toSnakeCase(row),
-    model: row.model ? JSON.parse(row.model) : [],
-  }))
+  const configs = configRows.map(row => exposeConfig(row, true))
   const agentRows = await db.select().from(schema.agentConfigs)
   const agents = agentRows.map(row => toSnakeCase(row))
 
@@ -248,6 +255,9 @@ app.post('/huobao-preset', async (c) => {
 
 // POST /ai-configs/test
 app.post('/test', async (c) => {
+  const forbidden = requireAdmin(c)
+  if (forbidden) return forbidden
+
   const body = await c.req.json()
   if (!body.service_type || !body.provider || !body.base_url) {
     return badRequest(c, 'service_type, provider and base_url are required')
@@ -320,14 +330,14 @@ app.get('/:id', async (c) => {
   const id = Number(c.req.param('id'))
   const [row] = await db.select().from(schema.aiServiceConfigs).where(eq(schema.aiServiceConfigs.id, id))
   if (!row) return notFound(c)
-  return success(c, {
-    ...toSnakeCase(row),
-    model: row.model ? JSON.parse(row.model) : [],
-  })
+  return success(c, exposeConfig(row, getAuthUser(c)?.role === 'admin'))
 })
 
 // PUT /ai-configs/:id
 app.put('/:id', async (c) => {
+  const forbidden = requireAdmin(c)
+  if (forbidden) return forbidden
+
   const id = Number(c.req.param('id'))
   const body = await c.req.json()
   const updates: Record<string, any> = { updatedAt: now() }
@@ -346,6 +356,9 @@ app.put('/:id', async (c) => {
 
 // DELETE /ai-configs/:id
 app.delete('/:id', async (c) => {
+  const forbidden = requireAdmin(c)
+  if (forbidden) return forbidden
+
   const id = Number(c.req.param('id'))
   await db.delete(schema.aiServiceConfigs).where(eq(schema.aiServiceConfigs.id, id))
   return success(c)

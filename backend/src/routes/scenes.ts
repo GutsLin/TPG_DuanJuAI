@@ -4,12 +4,16 @@ import { db, schema } from '../db/index.js'
 import { success, created, badRequest, now } from '../utils/response.js'
 import { generateImage } from '../services/image-generation.js'
 import { logTaskError, logTaskStart, logTaskSuccess } from '../utils/task-logger.js'
+import { getDramaIdBySceneId, logOperation, requireDramaRole, requireResolvedDramaRole } from '../auth/access.js'
 
 const app = new Hono()
 
 // POST /scenes
 app.post('/', async (c) => {
   const body = await c.req.json()
+  const forbidden = await requireDramaRole(c, Number(body.drama_id), 'editor')
+  if (forbidden) return forbidden
+
   const ts = now()
   const [result] = await db.insert(schema.scenes).values({
     dramaId: body.drama_id,
@@ -20,18 +24,24 @@ app.post('/', async (c) => {
     createdAt: ts,
     updatedAt: ts,
   }).returning()
+  await logOperation(c, { action: 'scene.create', dramaId: body.drama_id, resourceType: 'scene', resourceId: result.id })
   return created(c, result)
 })
 
 // PUT /scenes/:id
 app.put('/:id', async (c) => {
   const id = Number(c.req.param('id'))
+  const dramaId = await getDramaIdBySceneId(id)
+  const forbidden = await requireResolvedDramaRole(c, dramaId, 'editor')
+  if (forbidden) return forbidden
+
   const body = await c.req.json()
   const updates: Record<string, any> = { updatedAt: now() }
   if (body.location !== undefined) updates.location = body.location
   if (body.time !== undefined) updates.time = body.time
   if (body.prompt !== undefined) updates.prompt = body.prompt
   await db.update(schema.scenes).set(updates).where(eq(schema.scenes.id, id))
+  await logOperation(c, { action: 'scene.update', dramaId, resourceType: 'scene', resourceId: id, detail: updates })
   return success(c)
 })
 
@@ -39,6 +49,10 @@ app.put('/:id', async (c) => {
 app.post('/:id/generate-image', async (c) => {
   const id = Number(c.req.param('id'))
   const body = await c.req.json()
+  const dramaId = await getDramaIdBySceneId(id)
+  const forbidden = await requireResolvedDramaRole(c, dramaId, 'editor')
+  if (forbidden) return forbidden
+
   const [scene] = await db.select().from(schema.scenes).where(eq(schema.scenes.id, id))
   if (!scene) return badRequest(c, 'Scene not found')
   if (!body.episode_id) return badRequest(c, 'episode_id is required')
@@ -62,7 +76,12 @@ app.post('/:id/generate-image', async (c) => {
 // DELETE /scenes/:id
 app.delete('/:id', async (c) => {
   const id = Number(c.req.param('id'))
+  const dramaId = await getDramaIdBySceneId(id)
+  const forbidden = await requireResolvedDramaRole(c, dramaId, 'editor')
+  if (forbidden) return forbidden
+
   await db.delete(schema.scenes).where(eq(schema.scenes.id, id))
+  await logOperation(c, { action: 'scene.delete', dramaId, resourceType: 'scene', resourceId: id })
   return success(c)
 })
 
