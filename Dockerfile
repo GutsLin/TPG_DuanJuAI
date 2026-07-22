@@ -43,7 +43,7 @@ COPY backend/drizzle ./backend/drizzle
 COPY --from=frontend-build /app/frontend/.output/public ./frontend/dist
 
 # Skills
-COPY skills/ ./backend/skills/
+COPY skills/ ./skills/
 
 # Config
 COPY configs/config.example.yaml ./configs/config.yaml
