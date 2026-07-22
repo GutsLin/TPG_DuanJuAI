@@ -45,16 +45,14 @@ COPY --from=frontend-build /app/frontend/.output/public ./frontend/dist
 # Skills
 COPY skills/ ./skills/
 
-# Config
-COPY configs/config.example.yaml ./configs/config.yaml
-
 RUN mkdir -p data/static
 
 ENV NODE_ENV=production
 ENV PORT=5679
 ENV DATABASE_URL=postgres://huobao:huobao@postgres:5432/huobao_drama
 ENV REDIS_URL=redis://redis:6379
-ENV AUTH_JWT_SECRET=change-this-to-a-long-random-secret
+# 安全提示：AUTH_JWT_SECRET 必须在运行时注入（docker run -e / compose environment），
+# 不要在镜像中硬编码。未注入时后端会退回开发默认值 dev-change-me，仅限本地调试。
 
 EXPOSE 5679
 VOLUME ["/app/data"]

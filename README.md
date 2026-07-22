@@ -145,52 +145,38 @@ sudo apt update && sudo apt install ffmpeg
 ffmpeg -version
 ```
 
-### ⚙️ 配置文件
+### ⚙️ 配置方式（环境变量）
 
-复制并编辑配置文件：
+后端运行时配置**全部通过环境变量**注入，`configs/config.yaml` 不会被代码加载（`configs/config.example.yaml` 仅供参考）。
+
+本地开发：复制后端环境变量模板并按需修改，启动脚本会自动加载 `.env`：
 
 ```bash
-cp configs/config.example.yaml configs/config.yaml
+cp backend/.env.example backend/.env
 ```
 
-配置文件格式（`configs/config.yaml`）：
+`backend/.env` 可用变量：
 
-```yaml
-app:
-  name: "调皮狗短剧 API"
-  version: "1.0.0"
-  debug: true
+```bash
+DATABASE_URL=postgres://huobao:huobao@localhost:5432/huobao_drama
+DATABASE_POOL_SIZE=20
+DATABASE_IDLE_TIMEOUT=20
+DATABASE_CONNECT_TIMEOUT=10
 
-server:
-  port: 5679
-  host: "0.0.0.0"
-  cors_origins:
-    - "http://localhost:3013"
+REDIS_URL=redis://localhost:6379
+QUEUE_JOB_ATTEMPTS=1
+IMAGE_WORKER_CONCURRENCY=4
+VIDEO_WORKER_CONCURRENCY=2
+MEDIA_WORKER_CONCURRENCY=2
 
-database:
-  type: "postgresql"
-  url: "postgres://huobao:huobao@localhost:5432/huobao_drama"
-  pool_size: 20
-
-queue:
-  type: "bullmq"
-  redis_url: "redis://localhost:6379"
-  image_concurrency: 4
-  video_concurrency: 2
-  media_concurrency: 2
-
-storage:
-  type: "local"
-  local_path: "./data/storage"
-  base_url: "http://localhost:5679/static"
-
-ai:
-  default_text_provider: "openai"
-  default_image_provider: "openai"
-  default_video_provider: "doubao"
+PORT=5679
+STORAGE_PATH=../data/static
+# 生产环境必须改为长随机字符串
+AUTH_JWT_SECRET=change-this-to-a-long-random-secret
+AUTH_JWT_EXPIRES_IN_SECONDS=604800
 ```
 
-> **说明**：AI 服务的具体 API Key 和模型参数在 Web 界面的「设置」页面中配置。
+> **说明**：AI 服务的具体 API Key 和模型参数在 Web 界面的「设置」页面中配置（存数据库），不在环境变量里。
 
 ### 📥 安装依赖
 
@@ -284,6 +270,9 @@ npm run db:migrate:sqlite
 #### 方式一：Docker Compose（推荐）
 
 ```bash
+# 必须先生成并注入 JWT 密钥（未设置时 compose 会报错拒绝启动）
+export AUTH_JWT_SECRET=$(openssl rand -hex 32)
+
 # 启动服务
 docker compose up -d
 
@@ -294,6 +283,8 @@ docker compose logs -f
 docker compose down
 ```
 
+> Windows 用户可用任意长随机字符串，或写入项目根目录的 `.env` 文件（compose 会自动读取）：`AUTH_JWT_SECRET=<长随机字符串>`
+
 #### 方式二：Docker 命令
 
 ```bash
@@ -302,7 +293,7 @@ docker run -d \
   --name huobao-drama \
   -p 5679:5679 \
   -v $(pwd)/data:/app/data \
-  -v $(pwd)/configs/config.yaml:/app/configs/config.yaml \
+  -e AUTH_JWT_SECRET=<长随机字符串> \
   --restart unless-stopped \
   huobao/huobao-drama:latest
 
@@ -318,7 +309,7 @@ docker logs -f huobao-drama
 docker build -t huobao-drama:latest .
 docker run -d --name huobao-drama -p 5679:5679 \
   -v $(pwd)/data:/app/data \
-  -v $(pwd)/configs/config.yaml:/app/configs/config.yaml \
+  -e AUTH_JWT_SECRET=<长随机字符串> \
   huobao-drama:latest
 ```
 
@@ -361,9 +352,8 @@ cd backend && npm start
 需要上传到服务器的文件：
 
 ```
-backend/          # 后端源码 + node_modules
+backend/          # 后端源码 + node_modules + .env（环境变量配置）
 frontend/dist/    # 前端构建产物
-configs/config.yaml
 data/             # 数据目录（首次运行自动创建）
 skills/           # Agent 技能文件
 ```
