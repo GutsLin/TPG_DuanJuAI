@@ -1,0 +1,84 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    ports:
+      - "127.0.0.1:5432:5432"
+    environment:
+      POSTGRES_DB: huobao_drama
+      POSTGRES_USER: huobao
+      POSTGRES_PASSWORD: huobao
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U huobao -d huobao_drama"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "127.0.0.1:6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  huobao-drama:
+    build: .
+    image: huobao-drama:local
+    ports:
+      - "5679:5679"
+    volumes:
+      - ./data:/app/data
+      - ./configs:/app/configs:ro
+    environment:
+      - NODE_ENV=production
+      - PORT=5679
+      - DATABASE_URL=postgres://huobao:huobao@postgres:5432/huobao_drama
+      - DATABASE_POOL_SIZE=20
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:5679/api/v1/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  worker:
+    image: huobao-drama:local
+    command: ["tsx", "backend/src/worker.ts"]
+    volumes:
+      - ./data:/app/data
+      - ./configs:/app/configs:ro
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgres://huobao:huobao@postgres:5432/huobao_drama
+      - DATABASE_POOL_SIZE=20
+      - REDIS_URL=redis://redis:6379
+      - IMAGE_WORKER_CONCURRENCY=4
+      - VIDEO_WORKER_CONCURRENCY=2
+      - MEDIA_WORKER_CONCURRENCY=2
+    depends_on:
+      huobao-drama:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:

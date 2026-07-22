@@ -1,0 +1,2 @@
+CREATE UNIQUE INDEX "uq_episode_characters_episode_character" ON "episode_characters" USING btree ("episode_id","character_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "uq_episode_scenes_episode_scene" ON "episode_scenes" USING btree ("episode_id","scene_id");

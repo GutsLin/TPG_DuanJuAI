@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+.nuxt/
+.output/
+
+# Local environment
+.env
+.env.*
+!.env.example
+
+# Runtime data
+data/
+backend/data/
+frontend/.data/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
