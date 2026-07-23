@@ -183,23 +183,47 @@
     </div>
 
     <div v-if="logsDialog" class="dialog-mask" @click.self="logsDialog = false">
-      <div class="card side-dialog">
+      <div class="card side-dialog logs-dialog">
         <div class="dialog-head">
           <div>
-            <div class="dialog-kicker">Operation Logs</div>
-            <div class="dialog-title small">操作日志</div>
+            <div class="dialog-kicker">Operation & Model Call Logs</div>
+            <div class="dialog-title small">操作与模型调用日志</div>
           </div>
           <button class="back-btn" @click="logsDialog = false">关闭</button>
         </div>
         <div class="log-list">
-          <div v-for="log in logs" :key="log.id" class="log-row">
+          <div
+            v-for="log in logs"
+            :key="log.id"
+            class="log-row"
+            :class="{ 'log-row-model': isModelCallLog(log), 'log-row-error': isModelCallError(log) }"
+          >
             <div class="log-main">
-              <span class="log-action">{{ log.action }}</span>
-              <span class="log-user">{{ log.user?.name || '系统' }}</span>
+              <div class="log-title-row">
+                <span class="log-action">{{ formatLogAction(log) }}</span>
+                <span v-if="isModelCallLog(log)" class="log-outcome" :class="{ error: isModelCallError(log) }">
+                  {{ isModelCallError(log) ? '失败' : '成功' }}
+                </span>
+              </div>
+              <template v-if="isModelCallLog(log)">
+                <div class="log-call-meta">
+                  <span class="log-chip">{{ log.detail?.provider || '未知供应商' }}</span>
+                  <span v-if="log.detail?.model" class="log-chip">{{ log.detail.model }}</span>
+                  <span class="log-chip mono">{{ log.detail?.method || 'POST' }}</span>
+                  <span v-if="log.detail?.status != null" class="log-chip mono">HTTP {{ log.detail.status }}</span>
+                  <span v-else-if="isModelCallError(log)" class="log-chip mono">网络错误</span>
+                  <span v-if="log.detail?.duration_ms != null" class="log-chip mono">{{ formatDuration(log.detail.duration_ms) }}</span>
+                </div>
+                <div v-if="log.detail?.url" class="log-url mono">{{ log.detail.url }}</div>
+                <pre v-if="log.detail?.error" class="log-error">{{ log.detail.error }}</pre>
+              </template>
+              <div class="log-footer">
+                <span class="log-user">{{ log.user?.name || '系统' }}</span>
+                <span class="log-meta">{{ fmtLogDate(log.created_at) }}</span>
+              </div>
             </div>
-            <div class="log-meta">{{ fmtLogDate(log.created_at) }}</div>
           </div>
-          <div v-if="!logs.length" class="empty-logs">暂无操作记录</div>
+          <div v-if="!logs.length" class="empty-logs">暂无操作或模型调用记录</div>
         </div>
       </div>
     </div>
@@ -320,6 +344,27 @@ async function openLogs() {
 
 function fmtLogDate(s) {
   return s ? new Date(s).toLocaleString('zh-CN') : ''
+}
+
+function isModelCallLog(log) {
+  return String(log?.action || '').startsWith('model_call.')
+}
+
+function isModelCallError(log) {
+  return isModelCallLog(log) && log?.detail?.outcome === 'error'
+}
+
+function formatLogAction(log) {
+  if (!isModelCallLog(log)) return log.action
+  const kindLabels = { image: '图片', video: '视频', audio: '语音' }
+  const phaseLabels = { generate: '生成请求', poll: '任务查询' }
+  return `${kindLabels[log.detail?.kind] || '模型'}${phaseLabels[log.detail?.phase] || '调用'}`
+}
+
+function formatDuration(durationMs) {
+  const value = Number(durationMs)
+  if (!Number.isFinite(value)) return ''
+  return value < 1000 ? `${Math.round(value)} ms` : `${(value / 1000).toFixed(2)} s`
 }
 
 async function addEpisode() {
@@ -598,6 +643,7 @@ onMounted(() => { load(); loadConfigs() })
   gap: 16px;
   overflow: hidden;
 }
+.logs-dialog { width: min(760px, 100%); }
 .member-form {
   display: grid;
   grid-template-columns: 1fr 120px auto;
@@ -621,14 +667,77 @@ onMounted(() => { load(); loadConfigs() })
   border-radius: var(--radius);
   background: rgba(255,255,255,0.72);
 }
+.log-row { align-items: flex-start; }
+.log-row-model { padding: 14px; }
+.log-row-error {
+  border-color: rgba(210, 55, 55, 0.32);
+  background: rgba(255, 245, 245, 0.9);
+}
 .member-row > div,
 .log-main { flex: 1; min-width: 0; }
+.log-main { display: flex; flex-direction: column; gap: 8px; }
+.log-title-row,
+.log-footer,
+.log-call-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.log-title-row { justify-content: space-between; }
+.log-footer { justify-content: space-between; }
 .member-name,
 .log-action { font-size: 13px; font-weight: 700; color: var(--text-0); }
 .member-email,
 .log-user,
 .log-meta,
 .empty-logs { font-size: 12px; color: var(--text-3); }
+.log-outcome,
+.log-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 1.4;
+}
+.log-outcome {
+  color: #24734a;
+  background: rgba(42, 154, 91, 0.1);
+  font-weight: 700;
+}
+.log-outcome.error {
+  color: #b42318;
+  background: rgba(210, 55, 55, 0.1);
+}
+.log-chip {
+  color: var(--text-2);
+  background: rgba(27, 41, 64, 0.06);
+}
+.mono { font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace; }
+.log-url,
+.log-error {
+  width: 100%;
+  margin: 0;
+  padding: 9px 10px;
+  border-radius: 6px;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  font-size: 12px;
+  line-height: 1.55;
+}
+.log-url {
+  color: var(--text-2);
+  background: rgba(27, 41, 64, 0.045);
+}
+.log-error {
+  max-height: 240px;
+  overflow-y: auto;
+  color: #9f1f16;
+  border: 1px solid rgba(210, 55, 55, 0.18);
+  background: rgba(255, 255, 255, 0.72);
+}
 .role-chip {
   font-size: 11px;
   font-weight: 700;

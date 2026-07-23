@@ -11,6 +11,7 @@ import { getTTSAdapter } from './adapters/registry.js'
 import { logTaskError, logTaskPayload, logTaskProgress, logTaskStart, logTaskSuccess, redactUrl } from '../utils/task-logger.js'
 import { registerAsset } from './asset-register.js'
 import { finalizeMedia, isRemoteUrl } from '../utils/storage.js'
+import { recordModelCall } from './model-call-log.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const STORAGE_ROOT = process.env.STORAGE_PATH || path.resolve(__dirname, '../../../data/static')
@@ -73,20 +74,73 @@ export async function generateTTS(params: TTSParams): Promise<string> {
     body,
   })
 
-  const resp = await fetch(url, {
-    method,
-    headers,
-    body: JSON.stringify(body),
-  })
+  const callStartedAt = Date.now()
+  let resp: Response | undefined
+  let callLogged = false
+  let parsed: ReturnType<typeof adapter.parseResponse>
+  try {
+    resp = await fetch(url, {
+      method,
+      headers,
+      body: JSON.stringify(body),
+    })
 
-  if (!resp.ok) {
-    const errText = await resp.text()
-    logTaskError('AudioTask', 'tts-generate', { provider: config.provider, voice: params.voice, status: resp.status, error: errText })
-    throw new Error(`TTS API error ${resp.status}: ${errText}`)
+    if (!resp.ok) {
+      const errText = await resp.text()
+      await recordModelCall({
+        dramaId: params.dramaId,
+        kind: 'audio',
+        outcome: 'error',
+        provider: config.provider,
+        model: params.model || config.model,
+        method,
+        url,
+        status: resp.status,
+        durationMs: Date.now() - callStartedAt,
+        error: errText,
+        resourceType: params.storyboardId ? 'storyboard' : 'audio_generation',
+        resourceId: params.storyboardId ?? params.episodeId ?? params.dramaId ?? 'unscoped',
+      })
+      callLogged = true
+      logTaskError('AudioTask', 'tts-generate', { provider: config.provider, voice: params.voice, status: resp.status, error: errText })
+      throw new Error(`TTS API error ${resp.status}: ${errText}`)
+    }
+
+    const result = await resp.json()
+    parsed = adapter.parseResponse(result)
+    await recordModelCall({
+      dramaId: params.dramaId,
+      kind: 'audio',
+      outcome: 'success',
+      provider: config.provider,
+      model: params.model || config.model,
+      method,
+      url,
+      status: resp.status,
+      durationMs: Date.now() - callStartedAt,
+      resourceType: params.storyboardId ? 'storyboard' : 'audio_generation',
+      resourceId: params.storyboardId ?? params.episodeId ?? params.dramaId ?? 'unscoped',
+    })
+    callLogged = true
+  } catch (error) {
+    if (!callLogged) {
+      await recordModelCall({
+        dramaId: params.dramaId,
+        kind: 'audio',
+        outcome: 'error',
+        provider: config.provider,
+        model: params.model || config.model,
+        method,
+        url,
+        status: resp?.status,
+        durationMs: Date.now() - callStartedAt,
+        error,
+        resourceType: params.storyboardId ? 'storyboard' : 'audio_generation',
+        resourceId: params.storyboardId ?? params.episodeId ?? params.dramaId ?? 'unscoped',
+      })
+    }
+    throw error
   }
-
-  const result = await resp.json()
-  const parsed = adapter.parseResponse(result)
 
   // 将 hex 解码为二进制
   const buffer = Buffer.from(parsed.audioHex, 'hex')

@@ -8,6 +8,7 @@ import type { AIConfig } from './adapters/types'
 import { enqueueImageGeneration } from '../queue/jobs.js'
 import { getStoryboardAssetContext, registerAsset } from './asset-register.js'
 import { logTaskError, logTaskPayload, logTaskProgress, logTaskStart, logTaskSuccess, logTaskWarn, redactUrl } from '../utils/task-logger.js'
+import { recordModelCall } from './model-call-log.js'
 
 interface GenerateImageParams {
   storyboardId?: number
@@ -123,22 +124,82 @@ export async function processImageGeneration(id: number) {
       body,
     })
 
-    const resp = await fetch(url, {
-      method,
-      headers,
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(600_000),
-    })
+    const callStartedAt = Date.now()
+    let resp: Response | undefined
+    let callLogged = false
+    let result: any
+    let generateResponse: ReturnType<typeof adapter.parseGenerateResponse>
+    try {
+      resp = await fetch(url, {
+        method,
+        headers,
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(600_000),
+      })
 
-    if (!resp.ok) throw new Error(`API error ${resp.status}: ${await resp.text()}`)
-    const result = await resp.json() as any
+      if (!resp.ok) {
+        const errorText = await resp.text()
+        await recordModelCall({
+          dramaId: record.dramaId,
+          kind: 'image',
+          outcome: 'error',
+          provider: config.provider,
+          model: record.model,
+          method,
+          url,
+          status: resp.status,
+          durationMs: Date.now() - callStartedAt,
+          error: errorText,
+          resourceType: 'image_generation',
+          resourceId: id,
+        })
+        callLogged = true
+        throw new Error(`API error ${resp.status}: ${errorText}`)
+      }
+
+      result = await resp.json() as any
+      generateResponse = adapter.parseGenerateResponse(result)
+      await recordModelCall({
+        dramaId: record.dramaId,
+        kind: 'image',
+        outcome: 'success',
+        provider: config.provider,
+        model: record.model,
+        method,
+        url,
+        status: resp.status,
+        durationMs: Date.now() - callStartedAt,
+        resourceType: 'image_generation',
+        resourceId: id,
+      })
+      callLogged = true
+    } catch (error) {
+      if (!callLogged) {
+        await recordModelCall({
+          dramaId: record.dramaId,
+          kind: 'image',
+          outcome: 'error',
+          provider: config.provider,
+          model: record.model,
+          method,
+          url,
+          status: resp?.status,
+          durationMs: Date.now() - callStartedAt,
+          error,
+          resourceType: 'image_generation',
+          resourceId: id,
+        })
+      }
+      throw error
+    }
+
     logTaskPayload('ImageTask', 'response payload', {
       id,
       provider: config.provider,
       result,
     })
 
-    const { isAsync, taskId, imageUrl } = adapter.parseGenerateResponse(result)
+    const { isAsync, taskId, imageUrl } = generateResponse
 
     if (!isAsync && imageUrl) {
       logTaskProgress('ImageTask', 'sync-complete', { id, imageUrl })
@@ -164,7 +225,7 @@ export async function processImageGeneration(id: number) {
       .where(eq(schema.imageGenerations.id, id))
 
     logTaskProgress('ImageTask', 'poll-start', { id, taskId, provider: config.provider })
-    await pollImageTask(id, config, taskId!)
+    await pollImageTask(id, config, taskId!, record.dramaId, record.model)
   } catch (err: any) {
     logTaskError('ImageTask', 'process', { id, error: err.message })
     await db.update(schema.imageGenerations)
@@ -212,7 +273,13 @@ async function normalizeReferenceImages(raw: string | null | undefined): Promise
   return normalized.filter((item): item is string => !!item).slice(0, 6)
 }
 
-async function pollImageTask(id: number, config: AIConfig, taskId: string) {
+async function pollImageTask(
+  id: number,
+  config: AIConfig,
+  taskId: string,
+  dramaId?: number | null,
+  model?: string | null,
+) {
   const adapter = getImageAdapter(config.provider)
   const startedAt = Date.now()
   const maxDurationMs = 600_000
@@ -246,33 +313,123 @@ async function pollImageTask(id: number, config: AIConfig, taskId: string) {
         attempt: i + 1,
       })
       const remainingMs = Math.max(1_000, maxDurationMs - (Date.now() - startedAt))
-      const resp = await fetch(url, {
-        method,
-        headers,
-        signal: AbortSignal.timeout(remainingMs),
-      })
-      if (!resp.ok) continue
-      const result = await resp.json() as any
+      const callStartedAt = Date.now()
+      let resp: Response | undefined
+      let callLogged = false
+      try {
+        resp = await fetch(url, {
+          method,
+          headers,
+          signal: AbortSignal.timeout(remainingMs),
+        })
+        if (!resp.ok) {
+          const errorText = await resp.text()
+          await recordModelCall({
+            dramaId,
+            kind: 'image',
+            phase: 'poll',
+            outcome: 'error',
+            provider: config.provider,
+            model,
+            method,
+            url,
+            status: resp.status,
+            durationMs: Date.now() - callStartedAt,
+            error: errorText,
+            resourceType: 'image_generation',
+            resourceId: id,
+          })
+          callLogged = true
+          continue
+        }
+        const result = await resp.json() as any
 
-      const pollResp = adapter.parsePollResponse(result)
+        const pollResp = adapter.parsePollResponse(result)
 
-      if (pollResp.status === 'completed' && pollResp.imageUrl) {
-        logTaskSuccess('ImageTask', 'poll-complete', { id, taskId, imageUrl: pollResp.imageUrl })
-        await handleImageComplete(id, config.provider, pollResp.imageUrl)
-        return
-      }
-      if (pollResp.status === 'completed' && adapter.provider === 'gemini') {
-        // Gemini 可能返回 base64
-        const b64 = adapter.extractImageBase64(result)
-        if (b64) {
-          logTaskSuccess('ImageTask', 'poll-base64-complete', { id, taskId, mimeType: b64.mimeType })
-          await handleImageCompleteBase64(id, config.provider, b64.data, b64.mimeType)
+        if (pollResp.status === 'completed' && pollResp.imageUrl) {
+          await recordModelCall({
+            dramaId,
+            kind: 'image',
+            phase: 'poll',
+            outcome: 'success',
+            provider: config.provider,
+            model,
+            method,
+            url,
+            status: resp.status,
+            durationMs: Date.now() - callStartedAt,
+            resourceType: 'image_generation',
+            resourceId: id,
+          })
+          callLogged = true
+          logTaskSuccess('ImageTask', 'poll-complete', { id, taskId, imageUrl: pollResp.imageUrl })
+          await handleImageComplete(id, config.provider, pollResp.imageUrl)
           return
         }
-      }
-      if (pollResp.status === 'failed') {
-        logTaskError('ImageTask', 'poll-failed', { id, taskId, error: pollResp.error || 'Generation failed' })
-        throw new Error(pollResp.error || 'Generation failed')
+        if (pollResp.status === 'completed' && adapter.provider === 'gemini') {
+          // Gemini 可能返回 base64
+          const b64 = adapter.extractImageBase64(result)
+          if (b64) {
+            await recordModelCall({
+              dramaId,
+              kind: 'image',
+              phase: 'poll',
+              outcome: 'success',
+              provider: config.provider,
+              model,
+              method,
+              url,
+              status: resp.status,
+              durationMs: Date.now() - callStartedAt,
+              resourceType: 'image_generation',
+              resourceId: id,
+            })
+            callLogged = true
+            logTaskSuccess('ImageTask', 'poll-base64-complete', { id, taskId, mimeType: b64.mimeType })
+            await handleImageCompleteBase64(id, config.provider, b64.data, b64.mimeType)
+            return
+          }
+        }
+        if (pollResp.status === 'failed') {
+          const errorMessage = pollResp.error || 'Generation failed'
+          await recordModelCall({
+            dramaId,
+            kind: 'image',
+            phase: 'poll',
+            outcome: 'error',
+            provider: config.provider,
+            model,
+            method,
+            url,
+            status: resp.status,
+            durationMs: Date.now() - callStartedAt,
+            error: errorMessage,
+            resourceType: 'image_generation',
+            resourceId: id,
+          })
+          callLogged = true
+          logTaskError('ImageTask', 'poll-failed', { id, taskId, error: errorMessage })
+          throw new Error(errorMessage)
+        }
+      } catch (error) {
+        if (!callLogged) {
+          await recordModelCall({
+            dramaId,
+            kind: 'image',
+            phase: 'poll',
+            outcome: 'error',
+            provider: config.provider,
+            model,
+            method,
+            url,
+            status: resp?.status,
+            durationMs: Date.now() - callStartedAt,
+            error,
+            resourceType: 'image_generation',
+            resourceId: id,
+          })
+        }
+        throw error
       }
     } catch (err: any) {
       if (i === 119 || Date.now() - startedAt >= maxDurationMs) {

@@ -8,6 +8,7 @@ import type { AIConfig } from './adapters/types'
 import { enqueueVideoGeneration } from '../queue/jobs.js'
 import { getStoryboardAssetContext, registerAsset } from './asset-register.js'
 import { logTaskError, logTaskPayload, logTaskProgress, logTaskStart, logTaskSuccess, logTaskWarn, redactUrl } from '../utils/task-logger.js'
+import { recordModelCall } from './model-call-log.js'
 
 interface GenerateVideoParams {
   storyboardId?: number
@@ -133,16 +134,74 @@ export async function processVideoGeneration(id: number) {
       body,
     })
 
-    const resp = await fetch(url, {
-      method,
-      headers,
-      body: JSON.stringify(body),
-    })
+    const callStartedAt = Date.now()
+    let resp: Response | undefined
+    let callLogged = false
+    let generateResponse: ReturnType<typeof adapter.parseGenerateResponse>
+    try {
+      resp = await fetch(url, {
+        method,
+        headers,
+        body: JSON.stringify(body),
+      })
 
-    if (!resp.ok) throw new Error(`API error ${resp.status}: ${await resp.text()}`)
-    const result = await resp.json() as any
+      if (!resp.ok) {
+        const errorText = await resp.text()
+        await recordModelCall({
+          dramaId: record.dramaId,
+          kind: 'video',
+          outcome: 'error',
+          provider: config.provider,
+          model: record.model,
+          method,
+          url,
+          status: resp.status,
+          durationMs: Date.now() - callStartedAt,
+          error: errorText,
+          resourceType: 'video_generation',
+          resourceId: id,
+        })
+        callLogged = true
+        throw new Error(`API error ${resp.status}: ${errorText}`)
+      }
 
-    const { isAsync, taskId, videoUrl } = adapter.parseGenerateResponse(result)
+      const result = await resp.json() as any
+      generateResponse = adapter.parseGenerateResponse(result)
+      await recordModelCall({
+        dramaId: record.dramaId,
+        kind: 'video',
+        outcome: 'success',
+        provider: config.provider,
+        model: record.model,
+        method,
+        url,
+        status: resp.status,
+        durationMs: Date.now() - callStartedAt,
+        resourceType: 'video_generation',
+        resourceId: id,
+      })
+      callLogged = true
+    } catch (error) {
+      if (!callLogged) {
+        await recordModelCall({
+          dramaId: record.dramaId,
+          kind: 'video',
+          outcome: 'error',
+          provider: config.provider,
+          model: record.model,
+          method,
+          url,
+          status: resp?.status,
+          durationMs: Date.now() - callStartedAt,
+          error,
+          resourceType: 'video_generation',
+          resourceId: id,
+        })
+      }
+      throw error
+    }
+
+    const { isAsync, taskId, videoUrl } = generateResponse
 
     if (!isAsync && videoUrl) {
       logTaskProgress('VideoTask', 'sync-complete', { id, videoUrl })
@@ -164,7 +223,7 @@ export async function processVideoGeneration(id: number) {
       return
     }
 
-    await pollVideoTask(id, config, taskId!, record.storyboardId)
+    await pollVideoTask(id, config, taskId!, record.storyboardId, record.dramaId, record.model)
   } catch (err: any) {
     logTaskError('VideoTask', 'process', { id, error: err.message })
     await db.update(schema.videoGenerations)
@@ -208,7 +267,14 @@ async function normalizeVideoReferenceUrls(raw: string | null | undefined): Prom
   return normalized.filter((item): item is string => !!item)
 }
 
-async function pollVideoTask(id: number, config: AIConfig, taskId: string, storyboardId?: number | null) {
+async function pollVideoTask(
+  id: number,
+  config: AIConfig,
+  taskId: string,
+  storyboardId?: number | null,
+  dramaId?: number | null,
+  model?: string | null,
+) {
   const adapter = getVideoAdapter(config.provider)
 
   for (let i = 0; i < 300; i++) {
@@ -223,20 +289,95 @@ async function pollVideoTask(id: number, config: AIConfig, taskId: string, story
         url: redactUrl(url),
         attempt: i + 1,
       })
-      const resp = await fetch(url, { method, headers, signal: AbortSignal.timeout(30_000) })
-      if (!resp.ok) continue
-      const result = await resp.json() as any
+      const callStartedAt = Date.now()
+      let resp: Response | undefined
+      let callLogged = false
+      try {
+        resp = await fetch(url, { method, headers, signal: AbortSignal.timeout(30_000) })
+        if (!resp.ok) {
+          const errorText = await resp.text()
+          await recordModelCall({
+            dramaId,
+            kind: 'video',
+            phase: 'poll',
+            outcome: 'error',
+            provider: config.provider,
+            model,
+            method,
+            url,
+            status: resp.status,
+            durationMs: Date.now() - callStartedAt,
+            error: errorText,
+            resourceType: 'video_generation',
+            resourceId: id,
+          })
+          callLogged = true
+          continue
+        }
+        const result = await resp.json() as any
 
-      const pollResp = adapter.parsePollResponse(result)
+        const pollResp = adapter.parsePollResponse(result)
 
-      if (pollResp.status === 'completed' && pollResp.videoUrl) {
-        logTaskSuccess('VideoTask', 'poll-complete', { id, taskId, videoUrl: pollResp.videoUrl })
-        await handleVideoComplete(id, pollResp.videoUrl, null, storyboardId)
-        return
-      }
-      if (pollResp.status === 'failed') {
-        logTaskError('VideoTask', 'poll-failed', { id, taskId, error: pollResp.error || 'Video generation failed' })
-        throw new Error(pollResp.error || 'Video generation failed')
+        if (pollResp.status === 'completed' && pollResp.videoUrl) {
+          await recordModelCall({
+            dramaId,
+            kind: 'video',
+            phase: 'poll',
+            outcome: 'success',
+            provider: config.provider,
+            model,
+            method,
+            url,
+            status: resp.status,
+            durationMs: Date.now() - callStartedAt,
+            resourceType: 'video_generation',
+            resourceId: id,
+          })
+          callLogged = true
+          logTaskSuccess('VideoTask', 'poll-complete', { id, taskId, videoUrl: pollResp.videoUrl })
+          await handleVideoComplete(id, pollResp.videoUrl, null, storyboardId)
+          return
+        }
+        if (pollResp.status === 'failed') {
+          const errorMessage = pollResp.error || 'Video generation failed'
+          await recordModelCall({
+            dramaId,
+            kind: 'video',
+            phase: 'poll',
+            outcome: 'error',
+            provider: config.provider,
+            model,
+            method,
+            url,
+            status: resp.status,
+            durationMs: Date.now() - callStartedAt,
+            error: errorMessage,
+            resourceType: 'video_generation',
+            resourceId: id,
+          })
+          callLogged = true
+          logTaskError('VideoTask', 'poll-failed', { id, taskId, error: errorMessage })
+          throw new Error(errorMessage)
+        }
+      } catch (error) {
+        if (!callLogged) {
+          await recordModelCall({
+            dramaId,
+            kind: 'video',
+            phase: 'poll',
+            outcome: 'error',
+            provider: config.provider,
+            model,
+            method,
+            url,
+            status: resp?.status,
+            durationMs: Date.now() - callStartedAt,
+            error,
+            resourceType: 'video_generation',
+            resourceId: id,
+          })
+        }
+        throw error
       }
     } catch (err: any) {
       if (i === 299) {
