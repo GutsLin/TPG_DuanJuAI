@@ -27,3 +27,7 @@ yarn-error.log*
 Thumbs.db
 .idea/
 .vscode/
+
+# Local smoke/dev infra
+.smoke-infra/
+dump.rdb

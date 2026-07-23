@@ -2,7 +2,7 @@ import { db, schema } from '../db/index.js'
 import { eq } from 'drizzle-orm'
 import { getActiveConfig, getConfigById } from './ai.js'
 import { now } from '../utils/response.js'
-import { downloadFile, readImageAsCompressedDataUrl } from '../utils/storage.js'
+import { downloadFile, finalizeMedia, isRemoteUrl, readImageAsCompressedDataUrl } from '../utils/storage.js'
 import { getVideoAdapter } from './adapters/registry'
 import type { AIConfig } from './adapters/types'
 import { enqueueVideoGeneration } from '../queue/jobs.js'
@@ -254,6 +254,7 @@ async function pollVideoTask(id: number, config: AIConfig, taskId: string, story
 
 async function handleVideoComplete(id: number, videoUrl: string, duration: number | null | undefined, storyboardId?: number | null) {
   const localPath = await downloadFile(videoUrl, 'videos')
+  const finalUrl = await finalizeMedia(localPath)
   await db.update(schema.videoGenerations)
     .set({ videoUrl, localPath, status: 'completed', completedAt: now(), updatedAt: now() })
     .where(eq(schema.videoGenerations.id, id))
@@ -262,7 +263,7 @@ async function handleVideoComplete(id: number, videoUrl: string, duration: numbe
 
   if (storyboardId) {
     await db.update(schema.storyboards)
-      .set({ videoUrl: localPath, duration: duration || undefined, updatedAt: now() })
+      .set({ videoUrl: finalUrl, duration: duration || undefined, updatedAt: now() })
       .where(eq(schema.storyboards.id, storyboardId))
 
   }
@@ -291,7 +292,7 @@ async function handleVideoComplete(id: number, videoUrl: string, duration: numbe
     storyboardNum,
     name: (record?.prompt || '').slice(0, 40) || `video-${id}`,
     description: record?.prompt,
-    url: `/${localPath}`,
+    url: isRemoteUrl(finalUrl) ? finalUrl : `/${localPath}`,
     localPath,
     duration: duration ?? record?.duration ?? null,
     videoGenId: id,

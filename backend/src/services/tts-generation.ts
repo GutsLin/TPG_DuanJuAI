@@ -10,6 +10,7 @@ import { getAudioConfigById } from './ai.js'
 import { getTTSAdapter } from './adapters/registry.js'
 import { logTaskError, logTaskPayload, logTaskProgress, logTaskStart, logTaskSuccess, redactUrl } from '../utils/task-logger.js'
 import { registerAsset } from './asset-register.js'
+import { finalizeMedia, isRemoteUrl } from '../utils/storage.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const STORAGE_ROOT = process.env.STORAGE_PATH || path.resolve(__dirname, '../../../data/static')
@@ -98,6 +99,7 @@ export async function generateTTS(params: TTSParams): Promise<string> {
   fs.writeFileSync(filePath, buffer)
 
   const relativePath = `static/audio/${filename}`
+  const finalUrl = await finalizeMedia(relativePath)
   logTaskSuccess('AudioTask', 'tts-saved', {
     provider: config.provider,
     voice: params.voice,
@@ -118,7 +120,7 @@ export async function generateTTS(params: TTSParams): Promise<string> {
       storyboardId: params.storyboardId,
       name: params.text.slice(0, 40) || 'TTS 音频',
       description: params.text,
-      url: `/${relativePath}`,
+      url: isRemoteUrl(finalUrl) ? finalUrl : `/${relativePath}`,
       localPath: relativePath,
       fileSize: buffer.length,
       mimeType: AUDIO_MIME_BY_FORMAT[format] || null,
@@ -129,7 +131,7 @@ export async function generateTTS(params: TTSParams): Promise<string> {
     })
   }
 
-  return relativePath
+  return finalUrl
 }
 
 /**

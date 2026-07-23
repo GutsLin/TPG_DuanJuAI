@@ -15,6 +15,7 @@ import videos from './routes/videos.js'
 import upload from './routes/upload.js'
 import assets from './routes/assets.js'
 import aiConfigs, { aiProviders } from './routes/aiConfigs.js'
+import storageConfigs from './routes/storageConfigs.js'
 import agentConfigs from './routes/agentConfigs.js'
 import agent from './routes/agent.js'
 import compose from './routes/compose.js'
@@ -71,6 +72,8 @@ api.use('/agent-configs/*', requireAdminMiddleware)
 api.use('/skills', requireAdminMiddleware)
 api.use('/skills/*', requireAdminMiddleware)
 api.use('/ai-voices/sync', requireAdminMiddleware)
+api.use('/storage-configs', requireAdminMiddleware)
+api.use('/storage-configs/*', requireAdminMiddleware)
 api.route('/dramas', dramas)
 api.route('/episodes', episodes)
 api.route('/storyboards', storyboards)
@@ -81,6 +84,7 @@ api.route('/videos', videos)
 api.route('/upload', upload)
 api.route('/assets', assets)
 api.route('/ai-configs', aiConfigs)
+api.route('/storage-configs', storageConfigs)
 api.route('/ai-providers', aiProviders)
 api.route('/agent-configs', agentConfigs)
 api.route('/agent', agent)

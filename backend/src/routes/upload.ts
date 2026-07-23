@@ -3,7 +3,7 @@ import path from 'path'
 import sharp from 'sharp'
 import { db, schema } from '../db/index.js'
 import { success, badRequest, now } from '../utils/response.js'
-import { saveUploadedFile } from '../utils/storage.js'
+import { finalizeMedia, isRemoteUrl, saveUploadedFile } from '../utils/storage.js'
 import { getDramaIdByEpisodeId, getDramaIdByStoryboardId, requireDramaRole } from '../auth/access.js'
 
 const app = new Hono()
@@ -37,6 +37,7 @@ async function insertUploadAsset(params: {
   storyboardId: number | null
   type: 'image' | 'audio'
   storedPath: string
+  publicUrl: string
   fileSize: number
   mimeType: string
   width?: number | null
@@ -53,7 +54,7 @@ async function insertUploadAsset(params: {
     type: params.type,
     category: 'upload',
     source: 'upload',
-    url: `/${params.storedPath}`,
+    url: params.publicUrl,
     localPath: params.storedPath,
     fileSize: params.fileSize,
     mimeType: params.mimeType,
@@ -99,16 +100,19 @@ app.post('/image', async (c) => {
   }
 
   const storedPath = await saveUploadedFile(buffer, 'uploads', file.name)
+  const finalUrl = await finalizeMedia(storedPath)
+  const publicUrl = isRemoteUrl(finalUrl) ? finalUrl : `/${storedPath}`
   const asset = await insertUploadAsset({
     dramaId, episodeId, storyboardId,
     type: 'image',
     storedPath,
+    publicUrl,
     fileSize: file.size,
     mimeType: file.type,
     width, height,
     originalName: file.name,
   })
-  return success(c, { url: `/${storedPath}`, path: storedPath, asset })
+  return success(c, { url: publicUrl, path: storedPath, asset })
 })
 
 // POST /upload/audio
@@ -134,15 +138,18 @@ app.post('/audio', async (c) => {
 
   const buffer = await file.arrayBuffer()
   const storedPath = await saveUploadedFile(buffer, 'uploads', file.name)
+  const finalUrl = await finalizeMedia(storedPath)
+  const publicUrl = isRemoteUrl(finalUrl) ? finalUrl : `/${storedPath}`
   const asset = await insertUploadAsset({
     dramaId, episodeId, storyboardId,
     type: 'audio',
     storedPath,
+    publicUrl,
     fileSize: file.size,
     mimeType: file.type,
     originalName: file.name,
   })
-  return success(c, { url: `/${storedPath}`, path: storedPath, asset })
+  return success(c, { url: publicUrl, path: storedPath, asset })
 })
 
 export default app

@@ -71,6 +71,7 @@
 import { toast } from 'vue-sonner'
 import { Inbox, Loader2, Music, Search, X } from 'lucide-vue-next'
 import { assetAPI } from '~/composables/useApi'
+import { mediaUrl } from '~/composables/useMedia'
 
 const props = defineProps({
   show: { type: Boolean, default: false },
@@ -89,8 +90,7 @@ const loading = ref(false)
 const typeLabel = computed(() => ({ image: '图片', audio: '音频', video: '视频' }[props.type] || ''))
 
 function assetUrl(a) {
-  const u = a?.url || a?.thumbnailUrl || ''
-  return u ? (u.startsWith('/') ? u : `/${u}`) : ''
+  return mediaUrl(a?.url || a?.thumbnailUrl || '')
 }
 
 async function load(reset = false) {

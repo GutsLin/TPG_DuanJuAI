@@ -169,6 +169,16 @@ export const voicesAPI = {
   sync: () => api.post('/ai-voices/sync', {}),
 }
 
+export const storageConfigAPI = {
+  list: () => api.get('/storage-configs'),
+  create: (d: any) => api.post('/storage-configs', d),
+  update: (id: number, d: any) => api.put(`/storage-configs/${id}`, d),
+  del: (id: number) => api.del(`/storage-configs/${id}`),
+  test: (d: any) => api.post('/storage-configs/test', d),
+  activate: (id: number) => api.post(`/storage-configs/${id}/activate`),
+  deactivate: () => api.post('/storage-configs/deactivate'),
+}
+
 export const uploadAPI = {
   image: (file: File, extra?: Record<string, any>) => {
     const fd = new FormData()

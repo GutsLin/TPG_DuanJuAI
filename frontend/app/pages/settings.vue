@@ -268,6 +268,59 @@
           </div>
         </div>
       </div>
+      <!-- ===== 存储配置 ===== -->
+      <div v-else-if="tab === 'storage'" class="settings-scroll">
+        <div class="settings-head">
+          <div class="settings-brand">
+            <div class="settings-brand-mark">
+              <img v-if="showBrandImage" :src="brandLogo" alt="调皮狗短剧" class="settings-brand-logo" @error="showBrandImage = false" />
+              <span v-else class="settings-brand-fallback">调</span>
+            </div>
+            <div class="settings-brand-copy">
+              <div class="settings-brand-kicker">TPG Shorts</div>
+              <div class="settings-brand-name">调皮狗短剧</div>
+            </div>
+          </div>
+          <h2 class="settings-title">存储配置</h2>
+          <p class="settings-desc">配置媒体文件的云存储后端。未生效任何配置时使用本地磁盘存储（默认）。</p>
+        </div>
+        <section class="setup-panel card">
+          <div class="setup-panel-head compact">
+            <div>
+              <div class="setup-title">存储后端</div>
+              <div class="setup-desc">「设为生效」后新生成的媒体文件将写入对应云存储；取消全部生效则切回本地磁盘。</div>
+            </div>
+            <button class="btn btn-primary btn-sm" @click="startAddStorage"><Plus :size="13" /> 新增配置</button>
+          </div>
+          <div class="config-list">
+            <div v-for="c in storageCfgs" :key="c.id" class="card config-row">
+              <div class="config-info">
+                <div class="config-main">
+                  <div class="config-line">
+                    <span class="config-provider">{{ c.name || '未命名配置' }}</span>
+                    <span class="tag" :class="{ 'tag-accent': c.provider === 'aliyun-oss' }">{{ c.provider === 'aliyun-oss' ? '阿里云OSS' : '本地' }}</span>
+                    <span v-if="isStorageActive(c)" class="tag tag-success">生效中</span>
+                  </div>
+                  <template v-if="c.provider === 'aliyun-oss'">
+                    <span class="config-model mono truncate">bucket: {{ c.bucket || '—' }} · endpoint: {{ c.endpoint || '—' }}</span>
+                    <span class="config-base mono truncate">domain: {{ c.domain || '—' }} · prefix: {{ c.prefix || '（空）' }}</span>
+                  </template>
+                  <span v-else class="config-base mono truncate">服务器本地磁盘</span>
+                </div>
+              </div>
+              <button class="btn btn-ghost btn-sm" :disabled="storageTestingId === c.id" @click="testExistingStorage(c)">
+                <Loader2 v-if="storageTestingId === c.id" :size="12" class="animate-spin" />
+                <span v-else>测试连接</span>
+              </button>
+              <button v-if="isStorageActive(c)" class="btn btn-ghost btn-sm" @click="deactivateStorage">取消生效</button>
+              <button v-else class="btn btn-ghost btn-sm" @click="activateStorage(c)">设为生效</button>
+              <button class="btn btn-ghost btn-icon" @click="startEditStorage(c)"><Pencil :size="13" /></button>
+              <button class="btn btn-ghost btn-icon" @click="delStorage(c)"><Trash2 :size="13" /></button>
+            </div>
+            <p v-if="!storageCfgs.length" class="config-empty">暂无配置，当前使用本地磁盘存储</p>
+          </div>
+        </section>
+      </div>
     </div>
 
     <!-- AI Config Dialog -->
@@ -387,14 +440,69 @@
         </div>
       </form>
     </div>
+
+    <!-- Storage Config Dialog -->
+    <div v-if="storageDialog" class="overlay" @click.self="storageDialog = false">
+      <form class="modal card config-modal" @submit.prevent="saveStorage">
+        <div class="config-modal-head">
+          <div>
+            <div class="setup-kicker">{{ storageEditId ? 'Edit Storage' : 'New Storage' }}</div>
+            <h2 class="modal-title">{{ storageEditId ? '编辑存储配置' : '新增存储配置' }}</h2>
+            <div class="modal-note">AccessKey Secret 仅用于服务端签名存储，保存后不会回显明文。</div>
+          </div>
+          <span class="tag tag-accent">{{ storageForm.provider === 'aliyun-oss' ? '阿里云OSS' : '本地' }}</span>
+        </div>
+        <label class="field"><span class="field-label">存储类型</span>
+          <BaseSelect v-model="storageForm.provider" :options="storageProviderOptions" placeholder="选择存储类型" />
+        </label>
+        <label class="field">
+          <span class="field-label">配置名称</span>
+          <input v-model="storageForm.name" class="input" placeholder="如 生产环境 OSS" />
+        </label>
+        <template v-if="storageForm.provider === 'aliyun-oss'">
+          <label class="field">
+            <span class="field-label">Bucket</span>
+            <input v-model="storageForm.bucket" class="input" placeholder="my-bucket" />
+          </label>
+          <label class="field">
+            <span class="field-label">Endpoint</span>
+            <input v-model="storageForm.endpoint" class="input" placeholder="oss-cn-hangzhou.aliyuncs.com" />
+          </label>
+          <label class="field">
+            <span class="field-label">AccessKey ID</span>
+            <input v-model="storageForm.access_key_id" class="input" placeholder="LTAI..." />
+          </label>
+          <label class="field">
+            <span class="field-label">AccessKey Secret</span>
+            <input v-model="storageForm.access_key_secret" class="input" type="password" :placeholder="storageEditId ? '留空保持不变' : 'AccessKey Secret'" />
+          </label>
+          <label class="field">
+            <span class="field-label">自定义域名 <span class="dim">（可选，CDN / 自定义域名）</span></span>
+            <input v-model="storageForm.domain" class="input" placeholder="https://cdn.example.com" />
+          </label>
+          <label class="field">
+            <span class="field-label">路径前缀 <span class="dim">（可选，默认空）</span></span>
+            <input v-model="storageForm.prefix" class="input" placeholder="static" />
+          </label>
+        </template>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-ghost" :disabled="storageTesting" @click="testDraftStorage">
+            <Loader2 v-if="storageTesting" :size="12" class="animate-spin" />
+            <span v-else>测试连接</span>
+          </button>
+          <button type="button" class="btn" @click="storageDialog = false">取消</button>
+          <button type="submit" class="btn btn-primary">保存</button>
+        </div>
+      </form>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { Plus, Pencil, Trash2, FileText, ChevronDown, Check, Loader2, Bot, Cpu, Sparkles } from 'lucide-vue-next'
+import { Plus, Pencil, Trash2, FileText, ChevronDown, Check, Loader2, Bot, Cpu, Sparkles, HardDrive } from 'lucide-vue-next'
 import BaseSelect from '~/components/BaseSelect.vue'
 import { toast } from 'vue-sonner'
-import { aiConfigAPI, agentConfigAPI, skillsAPI } from '~/composables/useApi'
+import { aiConfigAPI, agentConfigAPI, skillsAPI, storageConfigAPI } from '~/composables/useApi'
 import brandLogo from '~/assets/huobao-logo.png'
 
 const showBrandImage = ref(true)
@@ -406,6 +514,7 @@ const baseTabs = [
 const advancedTabs = [
   { id: 'agents', label: 'Agent 配置', icon: Bot },
   { id: 'skills', label: 'Skills', icon: FileText },
+  { id: 'storage', label: '存储配置', icon: HardDrive },
 ]
 watch(showAdvanced, (v) => {
   if (!v && tab.value !== 'ai') tab.value = 'ai'
@@ -835,7 +944,87 @@ async function saveSkill(id) {
   }
 }
 
-onMounted(() => { loadCfgs(); loadAgents(); loadAllSkills() })
+// ===== Storage Configs =====
+const storageCfgs = ref([])
+const storageDialog = ref(false)
+const storageEditId = ref(null)
+const storageTesting = ref(false)
+const storageTestingId = ref(null)
+const storageForm = reactive({ provider: 'aliyun-oss', name: '', bucket: '', endpoint: '', access_key_id: '', access_key_secret: '', domain: '', prefix: '' })
+const storageProviderOptions = [
+  { label: '阿里云 OSS', value: 'aliyun-oss' },
+  { label: '本地', value: 'local' },
+]
+
+function isStorageActive(c) { return !!(c.is_active ?? c.isActive) }
+
+async function loadStorageCfgs() { try { storageCfgs.value = await storageConfigAPI.list() } catch (e) { toast.error(e.message) } }
+function startAddStorage() {
+  storageEditId.value = null
+  Object.assign(storageForm, { provider: 'aliyun-oss', name: '', bucket: '', endpoint: '', access_key_id: '', access_key_secret: '', domain: '', prefix: '' })
+  storageDialog.value = true
+}
+function startEditStorage(c) {
+  storageEditId.value = c.id
+  Object.assign(storageForm, {
+    provider: c.provider || 'aliyun-oss',
+    name: c.name || '',
+    bucket: c.bucket || '',
+    endpoint: c.endpoint || '',
+    access_key_id: c.access_key_id || '',
+    access_key_secret: c.access_key_secret || '',
+    domain: c.domain || '',
+    prefix: c.prefix || '',
+  })
+  storageDialog.value = true
+}
+function storagePayload() {
+  return {
+    provider: storageForm.provider,
+    name: storageForm.name,
+    bucket: storageForm.bucket,
+    endpoint: storageForm.endpoint,
+    access_key_id: storageForm.access_key_id,
+    access_key_secret: storageForm.access_key_secret,
+    domain: storageForm.domain,
+    prefix: storageForm.prefix,
+  }
+}
+async function saveStorage() {
+  if (!storageForm.name.trim()) { toast.warning('请填写配置名称'); return }
+  if (storageForm.provider === 'aliyun-oss' && (!storageForm.bucket.trim() || !storageForm.endpoint.trim())) { toast.warning('请填写 Bucket 与 Endpoint'); return }
+  try {
+    if (storageEditId.value) await storageConfigAPI.update(storageEditId.value, storagePayload())
+    else await storageConfigAPI.create(storagePayload())
+    storageDialog.value = false; toast.success('已保存'); loadStorageCfgs()
+  } catch (e) { toast.error(e.message) }
+}
+async function testDraftStorage() {
+  storageTesting.value = true
+  try {
+    const res = await storageConfigAPI.test(storagePayload())
+    toast.success(res?.message || '连接成功')
+  } catch (e) { toast.error(e.message) } finally { storageTesting.value = false }
+}
+async function testExistingStorage(c) {
+  storageTestingId.value = c.id
+  try {
+    const res = await storageConfigAPI.test({ id: c.id })
+    toast.success(res?.message || '连接成功')
+  } catch (e) { toast.error(e.message) } finally { storageTestingId.value = null }
+}
+async function activateStorage(c) {
+  try { await storageConfigAPI.activate(c.id); toast.success('已设为生效'); loadStorageCfgs() } catch (e) { toast.error(e.message) }
+}
+async function deactivateStorage() {
+  try { await storageConfigAPI.deactivate(); toast.success('已取消全部生效，切回本地存储'); loadStorageCfgs() } catch (e) { toast.error(e.message) }
+}
+async function delStorage(c) {
+  if (!confirm(`确定删除存储配置「${c.name || c.id}」？`)) return
+  try { await storageConfigAPI.del(c.id); toast.success('已删除'); loadStorageCfgs() } catch (e) { toast.error(e.message) }
+}
+
+onMounted(() => { loadCfgs(); loadAgents(); loadAllSkills(); loadStorageCfgs() })
 </script>
 
 <style scoped>

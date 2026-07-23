@@ -389,3 +389,19 @@ export const assets = pgTable('assets', {
   updatedAt: text('updated_at').notNull(),
   deletedAt: text('deleted_at'),
 })
+
+export const storageConfigs = pgTable('storage_configs', {
+  id: serial('id').primaryKey(),
+  provider: text('provider').notNull().default('local'),  // local | aliyun-oss
+  name: text('name').notNull(),
+  bucket: text('bucket').default(''),
+  endpoint: text('endpoint').default(''),
+  accessKeyId: text('access_key_id').default(''),
+  accessKeySecret: text('access_key_secret').default(''),
+  domain: text('domain').default(''),                     // CDN / 自定义域名
+  prefix: text('prefix').default(''),
+  isActive: boolean('is_active').default(false),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+  // 注意: 此表无 deleted_at
+})

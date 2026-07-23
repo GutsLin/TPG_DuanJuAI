@@ -45,6 +45,7 @@ export function normalizeLocalPath(value: string | null | undefined): string | n
 export function normalizeAssetUrl(value: string | null | undefined): string | null {
   const raw = String(value || '').trim()
   if (!raw) return null
+  if (/^https?:\/\//i.test(raw)) return raw  // 云存储绝对 URL 原样透传
   return raw.startsWith('/') ? raw : `/${raw}`
 }
 

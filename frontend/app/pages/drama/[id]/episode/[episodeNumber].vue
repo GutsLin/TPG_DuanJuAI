@@ -392,7 +392,7 @@
                 </div>
 
                 <div v-if="c.voice_sample_url || c.voiceSampleUrl" class="voice-player">
-                  <audio :src="'/' + (c.voice_sample_url || c.voiceSampleUrl)" controls preload="none" />
+                  <audio :src="mediaUrl(c.voice_sample_url || c.voiceSampleUrl)" controls preload="none" />
                 </div>
               </div>
             </div>
@@ -497,9 +497,9 @@
                       <div class="detail-preview-media">
                         <img
                           v-if="getFirstFrame(selectedSb)"
-                          :src="'/' + getFirstFrame(selectedSb)"
+                          :src="mediaUrl(getFirstFrame(selectedSb))"
                           class="previewable-image"
-                          @click.stop="openImageViewer('/' + getFirstFrame(selectedSb), `镜头 #${sbs.indexOf(selectedSb) + 1} 首帧`)"
+                          @click.stop="openImageViewer(mediaUrl(getFirstFrame(selectedSb)), `镜头 #${sbs.indexOf(selectedSb) + 1} 首帧`)"
                         />
                         <div v-else class="detail-preview-empty">待生成</div>
                       </div>
@@ -509,9 +509,9 @@
                       <div class="detail-preview-media">
                         <img
                           v-if="getLastFrame(selectedSb)"
-                          :src="'/' + getLastFrame(selectedSb)"
+                          :src="mediaUrl(getLastFrame(selectedSb))"
                           class="previewable-image"
-                          @click.stop="openImageViewer('/' + getLastFrame(selectedSb), `镜头 #${sbs.indexOf(selectedSb) + 1} 尾帧`)"
+                          @click.stop="openImageViewer(mediaUrl(getLastFrame(selectedSb)), `镜头 #${sbs.indexOf(selectedSb) + 1} 尾帧`)"
                         />
                         <div v-else class="detail-preview-empty">待生成</div>
                       </div>
@@ -762,9 +762,9 @@
                 <div class="asset-cover">
                   <img
                     v-if="c.image_url || c.imageUrl"
-                    :src="'/' + (c.image_url || c.imageUrl)"
+                    :src="mediaUrl(c.image_url || c.imageUrl)"
                     class="previewable-image"
-                    @click.stop="openImageViewer('/' + (c.image_url || c.imageUrl), `${c.name} 角色形象`)"
+                    @click.stop="openImageViewer(mediaUrl(c.image_url || c.imageUrl), `${c.name} 角色形象`)"
                   />
                   <div v-else class="asset-cover-empty">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
@@ -805,9 +805,9 @@
                 <div class="asset-cover wide">
                   <img
                     v-if="s.image_url || s.imageUrl"
-                    :src="'/' + (s.image_url || s.imageUrl)"
+                    :src="mediaUrl(s.image_url || s.imageUrl)"
                     class="previewable-image"
-                    @click.stop="openImageViewer('/' + (s.image_url || s.imageUrl), `${s.location} 场景图`)"
+                    @click.stop="openImageViewer(mediaUrl(s.image_url || s.imageUrl), `${s.location} 场景图`)"
                   />
                   <div v-else class="asset-cover-empty">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
@@ -871,7 +871,7 @@
                   <span class="dim">{{ sb.location || '未设地点' }}</span>
                 </div>
                 <div class="dub-foot">
-                  <audio v-if="hasTTS(sb)" :src="'/' + getTTSUrl(sb)" controls preload="none" class="dub-audio" />
+                  <audio v-if="hasTTS(sb)" :src="mediaUrl(getTTSUrl(sb))" controls preload="none" class="dub-audio" />
                   <div v-else class="dim" style="font-size:12px">{{ isPendingTts(sb.id) ? '配音生成中…' : '尚未生成语音文件' }}</div>
                   <div class="ml-auto flex gap-1">
                     <AssetUploader kind="audio" :drama-id="dramaId" :episode-id="epId" :storyboard-id="sb.id" button-text="上传配音" @uploaded="(a) => bindShotTts(sb.id, a?.url)" />
@@ -904,8 +904,8 @@
 
             <div v-if="gridHistory.length" class="grid-history-panel">
               <div v-if="gridImagePath" class="latest-grid-strip">
-                <button class="latest-grid-strip-thumb" @click="openImageViewer('/' + gridImagePath, '当前宫格图')">
-                  <img :src="'/' + gridImagePath" class="previewable-image" />
+                <button class="latest-grid-strip-thumb" @click="openImageViewer(mediaUrl(gridImagePath), '当前宫格图')">
+                  <img :src="mediaUrl(gridImagePath)" class="previewable-image" />
                 </button>
                 <div class="latest-grid-strip-copy">
                   <div class="latest-grid-strip-head">
@@ -941,7 +941,7 @@
                   @click="selectGridHistory(item)"
                 >
                   <div class="grid-history-thumb">
-                    <img :src="'/' + item.localPath" class="previewable-image" />
+                    <img :src="mediaUrl(item.localPath)" class="previewable-image" />
                   </div>
                   <div class="grid-history-copy">
                     <div class="grid-history-tags">
@@ -982,9 +982,9 @@
                       <div class="frame-thumb" @click.stop="!isPendingShotFrame(sb.id, 'first_frame') && genShotFrame(sb, 'first_frame')">
                         <img
                           v-if="getFirstFrame(sb)"
-                          :src="'/' + getFirstFrame(sb)"
+                          :src="mediaUrl(getFirstFrame(sb))"
                           class="previewable-image"
-                          @click.stop="openImageViewer('/' + getFirstFrame(sb), `镜头 #${String(i + 1).padStart(2, '0')} 首帧`)"
+                          @click.stop="openImageViewer(mediaUrl(getFirstFrame(sb)), `镜头 #${String(i + 1).padStart(2, '0')} 首帧`)"
                         />
                         <div v-else class="frame-thumb-empty">
                           <Loader2 v-if="isPendingShotFrame(sb.id, 'first_frame')" :size="14" class="animate-spin" />
@@ -1000,9 +1000,9 @@
                       <div class="frame-thumb" @click.stop="!isPendingShotFrame(sb.id, 'last_frame') && genShotFrame(sb, 'last_frame')">
                         <img
                           v-if="getLastFrame(sb)"
-                          :src="'/' + getLastFrame(sb)"
+                          :src="mediaUrl(getLastFrame(sb))"
                           class="previewable-image"
-                          @click.stop="openImageViewer('/' + getLastFrame(sb), `镜头 #${String(i + 1).padStart(2, '0')} 尾帧`)"
+                          @click.stop="openImageViewer(mediaUrl(getLastFrame(sb)), `镜头 #${String(i + 1).padStart(2, '0')} 尾帧`)"
                         />
                         <div v-else class="frame-thumb-empty">
                           <Loader2 v-if="isPendingShotFrame(sb.id, 'last_frame')" :size="14" class="animate-spin" />
@@ -1126,9 +1126,9 @@
                       <div class="grid-preview-wrap">
                         <div class="grid-preview-stage">
                           <img
-                            :src="'/' + gridImagePath"
+                            :src="mediaUrl(gridImagePath)"
                             class="grid-preview-img previewable-image"
-                            @click.stop="openImageViewer('/' + gridImagePath, '宫格图预览')"
+                            @click.stop="openImageViewer(mediaUrl(gridImagePath), '宫格图预览')"
                           />
                           <div class="grid-overlay" :style="gridOverlayStyle">
                             <button
@@ -1224,7 +1224,7 @@
                 <div class="prod-cover">
                   <video
                     v-if="hasVid(sb)"
-                    :src="'/' + getVideoUrl(sb)"
+                    :src="mediaUrl(getVideoUrl(sb))"
                     class="prod-video"
                     controls
                     preload="metadata"
@@ -1232,9 +1232,9 @@
                   />
                   <img
                     v-else-if="hasImg(sb)"
-                    :src="'/' + getStoryboardCover(sb)"
+                    :src="mediaUrl(getStoryboardCover(sb))"
                     class="previewable-image"
-                    @click.stop="openImageViewer('/' + getStoryboardCover(sb), `镜头 #${String(i + 1).padStart(2, '0')} 参考图`)"
+                    @click.stop="openImageViewer(mediaUrl(getStoryboardCover(sb)), `镜头 #${String(i + 1).padStart(2, '0')} 参考图`)"
                   />
                   <div v-else class="prod-cover-empty">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
@@ -1278,7 +1278,7 @@
                 <div class="prod-cover">
                   <video
                     v-if="hasComposed(sb)"
-                    :src="'/' + getComposedVideoUrl(sb)"
+                    :src="mediaUrl(getComposedVideoUrl(sb))"
                     class="prod-video"
                     controls
                     preload="metadata"
@@ -1286,7 +1286,7 @@
                   />
                   <video
                     v-else-if="hasVid(sb)"
-                    :src="'/' + getVideoUrl(sb)"
+                    :src="mediaUrl(getVideoUrl(sb))"
                     class="prod-video"
                     controls
                     preload="metadata"
@@ -1294,9 +1294,9 @@
                   />
                   <img
                     v-else-if="hasImg(sb)"
-                    :src="'/' + getStoryboardCover(sb)"
+                    :src="mediaUrl(getStoryboardCover(sb))"
                     class="previewable-image"
-                    @click.stop="openImageViewer('/' + getStoryboardCover(sb), `镜头 #${String(i + 1).padStart(2, '0')} 参考图`)"
+                    @click.stop="openImageViewer(mediaUrl(getStoryboardCover(sb)), `镜头 #${String(i + 1).padStart(2, '0')} 参考图`)"
                   />
                   <div v-else class="prod-cover-empty">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
@@ -1464,11 +1464,11 @@
         <div v-else class="export-split">
           <div class="export-main">
             <template v-if="mergeUrl">
-              <video :src="'/' + mergeUrl" controls class="export-video" />
+              <video :src="mediaUrl(mergeUrl)" controls class="export-video" />
               <div class="export-bar">
                 <span class="tag tag-success">拼接完成</span>
                 <span class="dim" style="font-size:12px">{{ sbs.length }} 镜头 · {{ totalDuration }}s</span>
-                <a :href="'/' + mergeUrl" download class="btn btn-primary ml-auto">
+                <a :href="mediaUrl(mergeUrl)" download class="btn btn-primary ml-auto">
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                   下载视频
                 </a>
@@ -1616,6 +1616,7 @@ import {
   Loader2, Music, Play, Star, Pencil, Link2, Trash2,
 } from 'lucide-vue-next'
 import { dramaAPI, episodeAPI, storyboardAPI, characterAPI, sceneAPI, imageAPI, videoAPI, composeAPI, mergeAPI, gridAPI, aiConfigAPI, voicesAPI, assetAPI } from '~/composables/useApi'
+import { mediaUrl } from '~/composables/useMedia'
 import { useAgent } from '~/composables/useAgent'
 import BaseSelect from '~/components/BaseSelect.vue'
 import AssetUploader from '~/components/AssetUploader.vue'
@@ -3220,12 +3221,12 @@ const bindDialog = ref({ show: false, asset: null })
 
 function assetUrl(a) {
   const u = a?.url || ''
-  return u ? (u.startsWith('/') ? u : `/${u}`) : ''
+  return mediaUrl(u)
 }
 
 function assetThumbUrl(a) {
   const u = a?.thumbnailUrl || a?.thumbnail_url || a?.url || ''
-  return u ? (u.startsWith('/') ? u : `/${u}`) : ''
+  return mediaUrl(u)
 }
 
 function formatAssetTime(v) {

@@ -2,7 +2,7 @@ import { db, schema } from '../db/index.js'
 import { eq } from 'drizzle-orm'
 import { getActiveConfig, getConfigById } from './ai.js'
 import { now } from '../utils/response.js'
-import { downloadFile, readImageAsCompressedDataUrl, saveBase64Image } from '../utils/storage.js'
+import { downloadFile, finalizeMedia, isRemoteUrl, readImageAsCompressedDataUrl, saveBase64Image } from '../utils/storage.js'
 import { getImageAdapter } from './adapters/registry'
 import type { AIConfig } from './adapters/types'
 import { enqueueImageGeneration } from '../queue/jobs.js'
@@ -292,7 +292,7 @@ async function pollImageTask(id: number, config: AIConfig, taskId: string) {
  * AI 图片完成后注册素材库（容错，不阻断主流程）
  * category：character / scene / first_frame / last_frame / grid / composed_image
  */
-async function registerImageAsset(record: typeof schema.imageGenerations.$inferSelect | undefined, localPath: string, imageGenId: number) {
+async function registerImageAsset(record: typeof schema.imageGenerations.$inferSelect | undefined, localPath: string, publicUrl: string, imageGenId: number) {
   if (!record) return
   const frameType = record.frameType || ''
 
@@ -341,7 +341,7 @@ async function registerImageAsset(record: typeof schema.imageGenerations.$inferS
     storyboardNum,
     name: (record.prompt || '').slice(0, 40) || `image-${imageGenId}`,
     description: record.prompt,
-    url: `/${localPath}`,
+    url: isRemoteUrl(publicUrl) ? publicUrl : `/${localPath}`,
     localPath,
     imageGenId,
   })
@@ -349,6 +349,7 @@ async function registerImageAsset(record: typeof schema.imageGenerations.$inferS
 
 async function handleImageComplete(id: number, provider: string, imageUrl: string) {
   const localPath = await downloadFile(imageUrl, 'images')
+  const finalUrl = await finalizeMedia(localPath)
   const rows = await db.select().from(schema.imageGenerations).where(eq(schema.imageGenerations.id, id))
   const record = rows[0]
 
@@ -361,23 +362,24 @@ async function handleImageComplete(id: number, provider: string, imageUrl: strin
   // 更新关联表
   if (record?.storyboardId) {
     const sbUpdate: Record<string, any> = { updatedAt: now() }
-    if (record.frameType === 'first_frame') sbUpdate.firstFrameImage = localPath
-    else if (record.frameType === 'last_frame') sbUpdate.lastFrameImage = localPath
-    else sbUpdate.composedImage = localPath
+    if (record.frameType === 'first_frame') sbUpdate.firstFrameImage = finalUrl
+    else if (record.frameType === 'last_frame') sbUpdate.lastFrameImage = finalUrl
+    else sbUpdate.composedImage = finalUrl
     await db.update(schema.storyboards).set(sbUpdate).where(eq(schema.storyboards.id, record.storyboardId))
   }
   if (record?.characterId) {
-    await db.update(schema.characters).set({ imageUrl: localPath, updatedAt: now() }).where(eq(schema.characters.id, record.characterId))
+    await db.update(schema.characters).set({ imageUrl: finalUrl, updatedAt: now() }).where(eq(schema.characters.id, record.characterId))
   }
   if (record?.sceneId) {
-    await db.update(schema.scenes).set({ imageUrl: localPath, status: 'completed', updatedAt: now() }).where(eq(schema.scenes.id, record.sceneId))
+    await db.update(schema.scenes).set({ imageUrl: finalUrl, status: 'completed', updatedAt: now() }).where(eq(schema.scenes.id, record.sceneId))
   }
 
-  await registerImageAsset(record, localPath, id)
+  await registerImageAsset(record, localPath, finalUrl, id)
 }
 
 async function handleImageCompleteBase64(id: number, provider: string, base64Data: string, mimeType: string) {
   const localPath = await saveBase64Image(base64Data, mimeType, 'images')
+  const finalUrl = await finalizeMedia(localPath)
   const rows = await db.select().from(schema.imageGenerations).where(eq(schema.imageGenerations.id, id))
   const record = rows[0]
 
@@ -390,17 +392,17 @@ async function handleImageCompleteBase64(id: number, provider: string, base64Dat
   // 更新关联表
   if (record?.storyboardId) {
     const sbUpdate: Record<string, any> = { updatedAt: now() }
-    if (record.frameType === 'first_frame') sbUpdate.firstFrameImage = localPath
-    else if (record.frameType === 'last_frame') sbUpdate.lastFrameImage = localPath
-    else sbUpdate.composedImage = localPath
+    if (record.frameType === 'first_frame') sbUpdate.firstFrameImage = finalUrl
+    else if (record.frameType === 'last_frame') sbUpdate.lastFrameImage = finalUrl
+    else sbUpdate.composedImage = finalUrl
     await db.update(schema.storyboards).set(sbUpdate).where(eq(schema.storyboards.id, record.storyboardId))
   }
   if (record?.characterId) {
-    await db.update(schema.characters).set({ imageUrl: localPath, updatedAt: now() }).where(eq(schema.characters.id, record.characterId))
+    await db.update(schema.characters).set({ imageUrl: finalUrl, updatedAt: now() }).where(eq(schema.characters.id, record.characterId))
   }
   if (record?.sceneId) {
-    await db.update(schema.scenes).set({ imageUrl: localPath, status: 'completed', updatedAt: now() }).where(eq(schema.scenes.id, record.sceneId))
+    await db.update(schema.scenes).set({ imageUrl: finalUrl, status: 'completed', updatedAt: now() }).where(eq(schema.scenes.id, record.sceneId))
   }
 
-  await registerImageAsset(record, localPath, id)
+  await registerImageAsset(record, localPath, finalUrl, id)
 }

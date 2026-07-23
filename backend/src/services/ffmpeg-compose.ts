@@ -11,21 +11,15 @@ import { db, schema } from '../db/index.js'
 import { eq } from 'drizzle-orm'
 import { now } from '../utils/response.js'
 import { generateTTS } from './tts-generation.js'
+import { ensureLocal, finalizeMedia, isRemoteUrl } from '../utils/storage.js'
 import { getStoryboardAssetContext, registerAsset } from './asset-register.js'
 import { logTaskError, logTaskProgress, logTaskStart, logTaskSuccess } from '../utils/task-logger.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const STORAGE_ROOT = process.env.STORAGE_PATH || path.resolve(__dirname, '../../../data/static')
-const DATA_ROOT = path.resolve(__dirname, '../../../data')
 let subtitleFilterSupport: boolean | null = null
 const IGNORE_TTS_SPEAKERS = /^(环境音|环境声|音效|效果音|sfx|sound ?effect|bgm|背景音|背景音乐|ambient)$/i
 const IGNORE_TTS_TEXT = /^(无|无对白|无台词|无旁白|无需配音|无需对白|none|null|n\/a|na|环境音|环境声|音效|效果音|纯音效|纯环境音|只有环境音|仅环境音|背景音|背景音乐|bgm|sfx|ambient)$/i
-
-function toAbsPath(relativePath: string): string {
-  if (path.isAbsolute(relativePath)) return relativePath
-  if (relativePath.startsWith('static/')) return path.join(DATA_ROOT, relativePath)
-  return path.join(STORAGE_ROOT, relativePath)
-}
 
 function supportsSubtitleFilter(): boolean {
   if (subtitleFilterSupport != null) return subtitleFilterSupport
@@ -66,7 +60,7 @@ export async function composeStoryboard(storyboardId: number): Promise<string> {
     episodeId: sb.episodeId,
   })
 
-  const videoPath = toAbsPath(sb.videoUrl)
+  const videoPath = await ensureLocal(sb.videoUrl)
   let audioPath: string | null = null
   let subtitlePath: string | null = null
   const parsedDialogue = parseDialogueForTTS(sb.dialogue)
@@ -75,9 +69,13 @@ export async function composeStoryboard(storyboardId: number): Promise<string> {
   try {
     if (!parsedDialogue.ignorable) {
       if (sb.ttsAudioUrl) {
-        const existingAudioPath = toAbsPath(sb.ttsAudioUrl)
-        if (fs.existsSync(existingAudioPath)) {
-          audioPath = existingAudioPath
+        try {
+          const existingAudioPath = await ensureLocal(sb.ttsAudioUrl)
+          if (fs.existsSync(existingAudioPath)) {
+            audioPath = existingAudioPath
+          }
+        } catch {
+          // 远程音频不可达时回退到重新生成 TTS
         }
       }
 
@@ -98,7 +96,7 @@ export async function composeStoryboard(storyboardId: number): Promise<string> {
         if (pureDialogue) {
           logTaskProgress('ComposeTask', 'generate-inline-tts', { storyboardId, voiceId, textPreview: pureDialogue.slice(0, 40) })
           const ttsPath = await generateTTS({ text: pureDialogue, voice: voiceId, configId: ep?.audioConfigId ?? undefined, storyboardId, episodeId: sb.episodeId, dramaId: ep?.dramaId ?? null })
-          audioPath = toAbsPath(ttsPath)
+          audioPath = await ensureLocal(ttsPath)
           await db.update(schema.storyboards).set({ ttsAudioUrl: ttsPath, updatedAt: now() })
             .where(eq(schema.storyboards.id, storyboardId))
         }
@@ -118,7 +116,8 @@ export async function composeStoryboard(storyboardId: number): Promise<string> {
       fs.writeFileSync(subtitlePath, srtContent, 'utf-8')
 
       const srtRelative = `static/subtitles/${srtFilename}`
-      await db.update(schema.storyboards).set({ subtitleUrl: srtRelative, updatedAt: now() })
+      const srtFinal = await finalizeMedia(srtRelative)
+      await db.update(schema.storyboards).set({ subtitleUrl: srtFinal, updatedAt: now() })
         .where(eq(schema.storyboards.id, storyboardId))
     }
 
@@ -171,13 +170,14 @@ export async function composeStoryboard(storyboardId: number): Promise<string> {
     })
 
     const composedRelative = `static/composed/${outputFilename}`
-    await db.update(schema.storyboards).set({ composedVideoUrl: composedRelative, status: 'compose_completed', updatedAt: now() })
+    const composedFinal = await finalizeMedia(composedRelative)
+    await db.update(schema.storyboards).set({ composedVideoUrl: composedFinal, status: 'compose_completed', updatedAt: now() })
       .where(eq(schema.storyboards.id, storyboardId))
 
     logTaskSuccess('ComposeTask', 'storyboard-compose', {
       storyboardId,
       storyboardNumber: sb.storyboardNumber,
-      output: composedRelative,
+      output: composedFinal,
     })
 
     // 注册素材库（容错，不阻断主流程）
@@ -191,13 +191,13 @@ export async function composeStoryboard(storyboardId: number): Promise<string> {
       storyboardId,
       storyboardNum: sb.storyboardNumber,
       name: `第${sb.storyboardNumber}镜 合成视频`,
-      url: `/${composedRelative}`,
+      url: isRemoteUrl(composedFinal) ? composedFinal : `/${composedRelative}`,
       localPath: composedRelative,
       duration: sb.duration ?? null,
       mimeType: 'video/mp4',
       format: 'mp4',
     })
-    return composedRelative
+    return composedFinal
   } catch (err) {
     await db.update(schema.storyboards)
       .set({ status: 'compose_failed', composedVideoUrl: null, updatedAt: now() })

@@ -6,7 +6,7 @@ import { Hono } from 'hono'
 import { eq } from 'drizzle-orm'
 import { db, schema } from '../db/index.js'
 import { success, badRequest } from '../utils/response.js'
-import { downloadFile } from '../utils/storage.js'
+import { downloadFile, finalizeMedia, isRemoteUrl } from '../utils/storage.js'
 import { ViduVideoAdapter } from '../services/adapters/vidu-video'
 import { getStoryboardAssetContext, registerAsset } from '../services/asset-register.js'
 import { logTaskError, logTaskProgress, logTaskSuccess, logTaskWarn } from '../utils/task-logger.js'
@@ -46,6 +46,7 @@ app.post('/vidu', async (c) => {
   if (state === 'success' && video_url) {
     try {
       const localPath = await downloadFile(video_url, 'videos')
+      const finalUrl = await finalizeMedia(localPath)
       await db.update(schema.videoGenerations)
         .set({
           videoUrl: video_url,
@@ -59,7 +60,7 @@ app.post('/vidu', async (c) => {
       // 更新 storyboard
       if (record.storyboardId) {
         await db.update(schema.storyboards)
-          .set({ videoUrl: localPath, updatedAt: new Date().toISOString() })
+          .set({ videoUrl: finalUrl, updatedAt: new Date().toISOString() })
           .where(eq(schema.storyboards.id, record.storyboardId))
 
       }
@@ -86,7 +87,7 @@ app.post('/vidu', async (c) => {
         storyboardNum,
         name: (record.prompt || '').slice(0, 40) || `video-${record.id}`,
         description: record.prompt,
-        url: `/${localPath}`,
+        url: isRemoteUrl(finalUrl) ? finalUrl : `/${localPath}`,
         localPath,
         duration: record.duration ?? null,
         videoGenId: record.id,

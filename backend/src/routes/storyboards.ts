@@ -255,9 +255,12 @@ app.post('/:id/bind-tts', async (c) => {
     return badRequest(c, 'url 或 asset_id 必填其一')
   }
 
-  if (ttsPath.startsWith('/')) ttsPath = ttsPath.slice(1)
-  if (!ttsPath.startsWith('static/')) return badRequest(c, 'url 必须是 static/ 开头的站内音频路径')
-  if (!fs.existsSync(getAbsolutePath(ttsPath))) return badRequest(c, '音频文件不存在')
+  // 远程 http(s) 绝对 URL（如云存储写穿后的地址）原样接受，跳过站内路径与存在性检查
+  if (!/^https?:\/\//i.test(ttsPath)) {
+    if (ttsPath.startsWith('/')) ttsPath = ttsPath.slice(1)
+    if (!ttsPath.startsWith('static/')) return badRequest(c, 'url 必须是 static/ 开头的站内音频路径')
+    if (!fs.existsSync(getAbsolutePath(ttsPath))) return badRequest(c, '音频文件不存在')
+  }
 
   await db.update(schema.storyboards)
     .set({ ttsAudioUrl: ttsPath, ttsStatus: 'completed', updatedAt: now() })

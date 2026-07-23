@@ -12,16 +12,10 @@ import { now } from '../utils/response.js'
 import { logTaskError, logTaskStart, logTaskSuccess } from '../utils/task-logger.js'
 import { enqueueEpisodeMerge } from '../queue/jobs.js'
 import { registerAsset } from './asset-register.js'
+import { ensureLocal, finalizeMedia, isRemoteUrl } from '../utils/storage.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const STORAGE_ROOT = process.env.STORAGE_PATH || path.resolve(__dirname, '../../../data/static')
-const DATA_ROOT = path.resolve(__dirname, '../../../data')
-
-function toAbsPath(relativePath: string): string {
-  if (path.isAbsolute(relativePath)) return relativePath
-  if (relativePath.startsWith('static/')) return path.join(DATA_ROOT, relativePath)
-  return path.join(STORAGE_ROOT, relativePath)
-}
 
 /**
  * 拼接一集的所有合成镜头视频
@@ -99,8 +93,9 @@ async function doMerge(mergeId: number, episodeId: number, videos: string[]) {
   fs.mkdirSync(listDir, { recursive: true })
   const listPath = path.join(listDir, `${uuid()}.txt`)
 
-  const listContent = videos
-    .map(v => `file '${toAbsPath(v)}'`)
+  const localVideos = await Promise.all(videos.map(v => ensureLocal(v)))
+  const listContent = localVideos
+    .map(v => `file '${v}'`)
     .join('\n')
   fs.writeFileSync(listPath, listContent, 'utf-8')
 
@@ -137,15 +132,16 @@ async function doMerge(mergeId: number, episodeId: number, videos: string[]) {
   const duration = await getVideoDuration(outputPath)
 
   const mergedRelative = `static/merged/${outputFilename}`
+  const mergedFinal = await finalizeMedia(mergedRelative)
 
   // 更新 merge 记录
   await db.update(schema.videoMerges)
-    .set({ status: 'completed', mergedUrl: mergedRelative, duration, completedAt: now() })
+    .set({ status: 'completed', mergedUrl: mergedFinal, duration, completedAt: now() })
     .where(eq(schema.videoMerges.id, mergeId))
 
   // 更新 episode
   await db.update(schema.episodes)
-    .set({ videoUrl: mergedRelative, updatedAt: now() })
+    .set({ videoUrl: mergedFinal, updatedAt: now() })
     .where(eq(schema.episodes.id, episodeId))
 
   // 注册素材库（容错，不阻断主流程）
@@ -157,14 +153,14 @@ async function doMerge(mergeId: number, episodeId: number, videos: string[]) {
     dramaId: ep?.dramaId ?? null,
     episodeId,
     name: `${ep?.title || `Episode ${episodeId}`} 整集拼接`,
-    url: `/${mergedRelative}`,
+    url: isRemoteUrl(mergedFinal) ? mergedFinal : `/${mergedRelative}`,
     localPath: mergedRelative,
     duration: duration || null,
     mimeType: 'video/mp4',
     format: 'mp4',
   })
 
-  logTaskSuccess('MergeTask', 'episode-merge', { mergeId, episodeId, output: mergedRelative, duration, clips: videos.length })
+  logTaskSuccess('MergeTask', 'episode-merge', { mergeId, episodeId, output: mergedFinal, duration, clips: videos.length })
 }
 
 function getVideoDuration(filePath: string): Promise<number> {

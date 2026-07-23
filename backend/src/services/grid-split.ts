@@ -2,7 +2,7 @@ import sharp from 'sharp'
 import fs from 'fs'
 import path from 'path'
 import { now } from '../utils/response.js'
-import { getAbsolutePath } from '../utils/storage.js'
+import { finalizeMedia, getAbsolutePath } from '../utils/storage.js'
 
 const DATA_DIR = getAbsolutePath('grid-cells')
 
@@ -45,7 +45,7 @@ export async function splitGridImage(
 
       results.push({
         index,
-        localPath: `static/grid-cells/${fileName}`,
+        localPath: await finalizeMedia(`static/grid-cells/${fileName}`),
       })
     }
   }

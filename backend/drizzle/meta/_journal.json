@@ -36,6 +36,13 @@
       "when": 1784720280972,
       "tag": "0004_assets_source_tts_status",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1784900000000,
+      "tag": "0005_storage_configs",
+      "breakpoints": true
     }
   ]
 }
