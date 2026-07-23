@@ -242,8 +242,49 @@
                     <div class="extract-name-row">
                       <div class="extract-name">{{ c.name }}</div>
                       <span class="tag">{{ c.role || '角色' }}</span>
+                      <div class="extract-row-actions">
+                        <button
+                          v-if="editingCharacterDescriptionId !== c.id"
+                          type="button"
+                          class="extract-action-btn"
+                          title="编辑人设描写"
+                          @click="startCharacterDescriptionEdit(c)"
+                        >
+                          <Pencil :size="13" />
+                        </button>
+                        <template v-else>
+                          <button
+                            type="button"
+                            class="extract-action-btn"
+                            title="取消编辑"
+                            :disabled="savingCharacterDescriptionId === c.id"
+                            @click="cancelCharacterDescriptionEdit"
+                          >
+                            <X :size="13" />
+                          </button>
+                          <button
+                            type="button"
+                            class="extract-action-btn is-primary"
+                            title="保存人设描写"
+                            :disabled="savingCharacterDescriptionId === c.id"
+                            @click="saveCharacterDescription(c)"
+                          >
+                            <Loader2 v-if="savingCharacterDescriptionId === c.id" :size="13" class="animate-spin" />
+                            <Save v-else :size="13" />
+                          </button>
+                        </template>
+                      </div>
                     </div>
-                    <div class="extract-meta wrap">{{ c.description || c.appearance || c.personality || '暂无描述' }}</div>
+                    <textarea
+                      v-if="editingCharacterDescriptionId === c.id"
+                      v-model="characterDescriptionDraft"
+                      class="textarea extract-description-editor"
+                      rows="4"
+                      placeholder="补充人物身份、外貌、性格、服装和关键辨识特征..."
+                      @keydown.ctrl.enter.prevent="saveCharacterDescription(c)"
+                      @keydown.meta.enter.prevent="saveCharacterDescription(c)"
+                    />
+                    <div v-else class="extract-meta wrap">{{ getCharacterDescription(c) || '暂无描述' }}</div>
                   </div>
                 </div>
               </div>
@@ -1613,7 +1654,7 @@
 import { toast } from 'vue-sonner'
 import {
   Users, MapPin, Video, ImageIcon, Layers, Mic2, FileText, FolderKanban, Clapperboard, Download,
-  Loader2, Music, Play, Star, Pencil, Link2, Trash2,
+  Loader2, Music, Play, Star, Pencil, Link2, Trash2, Save, X,
 } from 'lucide-vue-next'
 import { dramaAPI, episodeAPI, storyboardAPI, characterAPI, sceneAPI, imageAPI, videoAPI, composeAPI, mergeAPI, gridAPI, aiConfigAPI, voicesAPI, assetAPI } from '~/composables/useApi'
 import { mediaUrl } from '~/composables/useMedia'
@@ -1689,6 +1730,9 @@ const pendingTtsIds = ref([])
 const failedVideoMessages = ref({})
 const failedComposeMessages = ref({})
 const imageViewer = ref({ open: false, src: '', title: '' })
+const editingCharacterDescriptionId = ref(null)
+const savingCharacterDescriptionId = ref(null)
+const characterDescriptionDraft = ref('')
 
 // Polling lifecycle: set on unmount so every poll loop exits promptly
 let disposed = false
@@ -2637,6 +2681,33 @@ async function refresh() {
 
 function saveRaw() { episodeAPI.update(epId.value, { content: localRaw.value }); episode.value.content = localRaw.value }
 function saveScr() { episodeAPI.update(epId.value, { script_content: localScript.value }); episode.value.script_content = localScript.value }
+function getCharacterDescription(character) {
+  return character?.description || character?.appearance || character?.personality || ''
+}
+function startCharacterDescriptionEdit(character) {
+  editingCharacterDescriptionId.value = character.id
+  characterDescriptionDraft.value = getCharacterDescription(character)
+}
+function cancelCharacterDescriptionEdit() {
+  editingCharacterDescriptionId.value = null
+  characterDescriptionDraft.value = ''
+}
+async function saveCharacterDescription(character) {
+  if (savingCharacterDescriptionId.value === character.id) return
+  const description = characterDescriptionDraft.value.trim()
+  savingCharacterDescriptionId.value = character.id
+  try {
+    await characterAPI.update(character.id, { description })
+    character.description = description
+    editingCharacterDescriptionId.value = null
+    characterDescriptionDraft.value = ''
+    toast.success('人设描写已保存')
+  } catch (e) {
+    toast.error(e.message)
+  } finally {
+    savingCharacterDescriptionId.value = null
+  }
+}
 function doRewrite() { saveRaw(); runAgent('script_rewriter', '请读取剧本并改写为格式化剧本，然后保存', dramaId, epId.value, refresh) }
 function skipRewrite() {
   const raw = (localRaw.value || rawContent.value || '').trim()
@@ -2893,6 +2964,22 @@ function getShotReferenceImages(sb) {
   return refs.filter(Boolean).slice(0, 6)
 }
 
+function getVideoReferenceImages(sb) {
+  const refs = []
+  const pushRef = (value) => {
+    if (!value || refs.includes(value) || refs.length >= 6) return
+    refs.push(value)
+  }
+  const sceneId = sb?.scene_id || sb?.sceneId
+  const scene = scenes.value.find(item => item.id === sceneId)
+  pushRef(scene?.image_url || scene?.imageUrl)
+  for (const charId of getStoryboardCharacterIds(sb)) {
+    const char = chars.value.find(item => item.id === charId)
+    pushRef(char?.image_url || char?.imageUrl)
+  }
+  return refs
+}
+
 function buildShotImagePrompt(sb, frameType) {
   const title = sb.title || ''
   const description = sb.image_prompt || sb.imagePrompt || sb.description || ''
@@ -2953,12 +3040,10 @@ async function genVid(sb) {
     prompt: sb.video_prompt || sb.videoPrompt || '',
     duration: Number(sb.duration || 5),
   }
-  const first = getFirstFrame(sb)
-  const last = getLastFrame(sb)
-  const refs = getRefs(sb)
-  if (first && last) { Object.assign(params, { reference_mode: 'first_last', first_frame_url: first, last_frame_url: last }) }
-  else if (refs.length) { Object.assign(params, { reference_mode: 'multiple', reference_image_urls: [first, ...refs].filter(Boolean) }) }
-  else if (first) { Object.assign(params, { reference_mode: 'single', image_url: first }) }
+  const refs = getVideoReferenceImages(sb)
+  if (refs.length) {
+    Object.assign(params, { reference_mode: 'multiple', reference_image_urls: refs })
+  }
   try {
     delete failedVideoMessages.value[sb.id]
     if (!isPendingVideo(sb.id)) pendingVideoIds.value.push(sb.id)
@@ -3888,11 +3973,22 @@ onMounted(async () => {
   display: flex; align-items: center; justify-content: center;
   color: var(--text-3); flex-shrink: 0;
 }
-.extract-info { min-width: 0; }
+.extract-info { min-width: 0; flex: 1; }
 .extract-name-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .extract-name { font-size: 13px; font-weight: 600; }
 .extract-meta { font-size: 11px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .extract-meta.wrap { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.extract-row-actions { margin-left: auto; display: flex; align-items: center; gap: 4px; }
+.extract-action-btn {
+  width: 26px; height: 26px; padding: 0; flex: 0 0 26px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--border); border-radius: 6px;
+  color: var(--text-2); background: var(--bg-0); cursor: pointer;
+}
+.extract-action-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); background: var(--accent-bg); }
+.extract-action-btn.is-primary { color: #fff; border-color: var(--accent); background: var(--accent); }
+.extract-action-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.extract-description-editor { margin-top: 8px; min-height: 88px; resize: vertical; font-size: 12px; line-height: 1.65; }
 
 /* Voice grid */
 .voice-stage { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 16px; display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 12px; }
