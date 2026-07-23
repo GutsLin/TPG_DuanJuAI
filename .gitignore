@@ -31,3 +31,6 @@ Thumbs.db
 # Local smoke/dev infra
 .smoke-infra/
 dump.rdb
+
+# Deploy local config (contains credentials)
+scripts/deploy.config.local.sh
