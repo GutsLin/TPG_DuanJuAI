@@ -8,6 +8,7 @@ import { db, schema } from '../db/index.js'
 import { success, badRequest } from '../utils/response.js'
 import { downloadFile } from '../utils/storage.js'
 import { ViduVideoAdapter } from '../services/adapters/vidu-video'
+import { getStoryboardAssetContext, registerAsset } from '../services/asset-register.js'
 import { logTaskError, logTaskProgress, logTaskSuccess, logTaskWarn } from '../utils/task-logger.js'
 
 const app = new Hono()
@@ -62,6 +63,34 @@ app.post('/vidu', async (c) => {
           .where(eq(schema.storyboards.id, record.storyboardId))
 
       }
+
+      // 注册素材库（容错，不阻断回调）
+      let episodeId: number | null = null
+      let storyboardNum: number | null = null
+      let dramaId = record.dramaId ?? null
+      if (record.storyboardId) {
+        const ctx = await getStoryboardAssetContext(record.storyboardId)
+        if (ctx) {
+          episodeId = ctx.episodeId
+          storyboardNum = ctx.storyboardNum
+          dramaId = dramaId ?? ctx.dramaId
+        }
+      }
+      await registerAsset({
+        type: 'video',
+        category: 'generated_video',
+        source: 'ai',
+        dramaId,
+        episodeId,
+        storyboardId: record.storyboardId ?? null,
+        storyboardNum,
+        name: (record.prompt || '').slice(0, 40) || `video-${record.id}`,
+        description: record.prompt,
+        url: `/${localPath}`,
+        localPath,
+        duration: record.duration ?? null,
+        videoGenId: record.id,
+      })
 
       logTaskSuccess('Webhook', 'vidu-video-updated', {
         taskId: task_id,

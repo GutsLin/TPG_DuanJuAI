@@ -1,6 +1,7 @@
 export default defineNuxtConfig({
   srcDir: 'app/',
   ssr: false,
+  devServer: { port: 3013 },
   devtools: { enabled: false },
   experimental: {
     appManifest: false,

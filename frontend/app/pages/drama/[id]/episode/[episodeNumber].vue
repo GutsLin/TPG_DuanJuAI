@@ -734,6 +734,13 @@
                 {{ t.label }}
                 <span v-if="t.badge" class="prod-tab-badge">{{ t.badge }}</span>
               </button>
+              <button
+                :class="['prod-tab', { active: prodTab === 'assets' }]"
+                @click="prodTab = 'assets'"
+              >
+                <component :is="FolderKanban" :size="11" />
+                素材库
+              </button>
             </div>
           </div>
 
@@ -771,7 +778,11 @@
                 <div class="asset-foot">
                   <span :class="['dot', (c.image_url || c.imageUrl) && 'ok', isPendingCharImage(c.id) && 'pending']" />
                   <span class="dim" style="font-size:10px">{{ (c.image_url || c.imageUrl) ? '已生成' : (isPendingCharImage(c.id) ? '生成中' : '待生成') }}</span>
-                  <button class="btn btn-sm ml-auto" :disabled="isPendingCharImage(c.id)" @click="genCharImg(c.id)">{{ isPendingCharImage(c.id) ? '生成中' : '生成' }}</button>
+                  <div class="ml-auto flex gap-1 asset-foot-actions">
+                    <AssetUploader kind="image" :drama-id="dramaId" :episode-id="epId" button-text="上传" @uploaded="(a) => bindCharImage(c.id, a?.url)" />
+                    <button class="btn btn-sm" @click="openAssetPicker('image', { kind: 'char', id: c.id })">素材库</button>
+                    <button class="btn btn-sm" :disabled="isPendingCharImage(c.id)" @click="genCharImg(c.id)">{{ isPendingCharImage(c.id) ? '生成中' : '生成' }}</button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -810,7 +821,11 @@
                 <div class="asset-foot">
                   <span :class="['dot', (s.image_url || s.imageUrl) && 'ok', isPendingSceneImage(s.id) && 'pending']" />
                   <span class="dim" style="font-size:10px">{{ (s.image_url || s.imageUrl) ? '已生成' : (isPendingSceneImage(s.id) ? '生成中' : '待生成') }}</span>
-                  <button class="btn btn-sm ml-auto" :disabled="isPendingSceneImage(s.id)" @click="genSceneImg(s.id)">{{ isPendingSceneImage(s.id) ? '生成中' : '生成' }}</button>
+                  <div class="ml-auto flex gap-1 asset-foot-actions">
+                    <AssetUploader kind="image" :drama-id="dramaId" :episode-id="epId" button-text="上传" @uploaded="(a) => bindSceneImage(s.id, a?.url)" />
+                    <button class="btn btn-sm" @click="openAssetPicker('image', { kind: 'scene', id: s.id })">素材库</button>
+                    <button class="btn btn-sm" :disabled="isPendingSceneImage(s.id)" @click="genSceneImg(s.id)">{{ isPendingSceneImage(s.id) ? '生成中' : '生成' }}</button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -848,7 +863,7 @@
                     </div>
                     <div class="dub-desc">{{ getDialogueText(sb) || '未填写文本' }}</div>
                     </div>
-                    <span class="tag" :class="hasTTS(sb) ? 'tag-success' : ''">{{ hasTTS(sb) ? '已生成' : '待生成' }}</span>
+                    <span class="tag" :class="hasTTS(sb) ? 'tag-success' : (isPendingTts(sb.id) ? 'tag-info' : '')">{{ hasTTS(sb) ? '已生成' : (isPendingTts(sb.id) ? '生成中' : '待生成') }}</span>
                   </div>
                 <div class="dub-meta">
                   <span class="dim">{{ sb.shot_type || sb.shotType || '未设景别' }}</span>
@@ -857,8 +872,12 @@
                 </div>
                 <div class="dub-foot">
                   <audio v-if="hasTTS(sb)" :src="'/' + getTTSUrl(sb)" controls preload="none" class="dub-audio" />
-                  <div v-else class="dim" style="font-size:12px">尚未生成语音文件</div>
-                  <button class="btn btn-sm ml-auto" @click="genShotTTS(sb)">生成配音</button>
+                  <div v-else class="dim" style="font-size:12px">{{ isPendingTts(sb.id) ? '配音生成中…' : '尚未生成语音文件' }}</div>
+                  <div class="ml-auto flex gap-1">
+                    <AssetUploader kind="audio" :drama-id="dramaId" :episode-id="epId" :storyboard-id="sb.id" button-text="上传配音" @uploaded="(a) => bindShotTts(sb.id, a?.url)" />
+                    <button class="btn btn-sm" @click="openAssetPicker('audio', { kind: 'tts', id: sb.id })">素材库</button>
+                    <button class="btn btn-sm" :disabled="isPendingTts(sb.id)" @click="genShotTTS(sb)">{{ isPendingTts(sb.id) ? '生成中' : '生成配音' }}</button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1305,6 +1324,129 @@
             </div>
           </div>
 
+          <!-- Sub: Asset Library -->
+          <div v-else-if="prodTab === 'assets'" class="prod-content">
+            <div class="prod-section-bar">
+              <span class="dim" style="font-size:12px">{{ assetTotal }} 个素材</span>
+              <div class="assetlib-filters">
+                <button
+                  v-for="f in assetTypeFilters"
+                  :key="f.id"
+                  :class="['assetlib-filter', { active: assetType === f.id }]"
+                  @click="assetType = f.id; loadAssets(true)"
+                >{{ f.label }}</button>
+              </div>
+              <label class="assetlib-fav">
+                <input type="checkbox" v-model="assetFavOnly" @change="loadAssets(true)" />
+                仅收藏
+              </label>
+              <div class="ml-auto flex gap-1">
+                <input
+                  v-model="assetQuery"
+                  class="input assetlib-search"
+                  placeholder="搜索素材名称或描述..."
+                  @keyup.enter="loadAssets(true)"
+                />
+                <button class="btn btn-sm" :disabled="assetsLoading" @click="loadAssets(true)">搜索</button>
+              </div>
+            </div>
+
+            <div v-if="assetsLoading && !assetItems.length" class="step-empty" style="min-height:220px">
+              <Loader2 :size="22" class="animate-spin" style="color:var(--accent)" />
+              <div class="empty-desc">素材加载中…</div>
+            </div>
+            <div v-else-if="!assetItems.length" class="step-empty" style="min-height:220px">
+              <div class="empty-visual">
+                <FolderKanban :size="32" />
+              </div>
+              <div class="empty-title">暂无素材</div>
+              <div class="empty-desc">在角色、场景、配音处上传文件，或生成的图片、视频、音频都会汇入素材库</div>
+            </div>
+
+            <template v-else>
+              <div class="assetlib-grid">
+                <div v-for="a in assetItems" :key="a.id" class="card asset-card assetlib-card">
+                  <div v-if="a.type === 'audio'" class="assetlib-audio-cover">
+                    <Music :size="18" />
+                    <audio :src="assetUrl(a)" controls preload="none" class="assetlib-audio" />
+                  </div>
+                  <div v-else class="asset-cover wide">
+                    <img
+                      v-if="a.type === 'image'"
+                      :src="assetUrl(a)"
+                      class="previewable-image"
+                      @click.stop="openImageViewer(assetUrl(a), a.name || '素材预览')"
+                    />
+                    <template v-else>
+                      <video
+                        v-if="playingVideoId === a.id"
+                        :src="assetUrl(a)"
+                        class="prod-video"
+                        controls
+                        autoplay
+                        playsinline
+                      />
+                      <template v-else>
+                        <img
+                          v-if="a.thumbnailUrl || a.thumbnail_url"
+                          :src="assetThumbUrl(a)"
+                          class="previewable-image"
+                          @click.stop="playingVideoId = a.id"
+                        />
+                        <div v-else class="asset-cover-empty">
+                          <Video :size="20" />
+                        </div>
+                        <button class="assetlib-play" title="播放" @click.stop="playingVideoId = a.id">
+                          <Play :size="13" />
+                        </button>
+                      </template>
+                    </template>
+                    <span class="asset-cover-badge is-ready">{{ a.type === 'image' ? '图片' : '视频' }}</span>
+                  </div>
+                  <div class="asset-body">
+                    <div v-if="renamingId === a.id" class="assetlib-rename">
+                      <input
+                        v-model="renameValue"
+                        class="input assetlib-rename-input"
+                        placeholder="素材名称"
+                        @keyup.enter="submitRename(a)"
+                        @keyup.esc="renamingId = null"
+                      />
+                      <button class="btn btn-sm btn-primary" @click="submitRename(a)">确定</button>
+                    </div>
+                    <template v-else>
+                      <div class="asset-name truncate" :title="a.name">{{ a.name || '未命名素材' }}</div>
+                      <div class="asset-meta dim">{{ formatAssetTime(a.createdAt || a.created_at) }}</div>
+                    </template>
+                  </div>
+                  <div class="asset-foot assetlib-foot">
+                    <button
+                      :class="['btn-icon-sm', a.isFavorite && 'is-fav']"
+                      :title="a.isFavorite ? '取消收藏' : '收藏'"
+                      @click="toggleAssetFavorite(a)"
+                    >
+                      <Star :size="12" :fill="a.isFavorite ? 'currentColor' : 'none'" />
+                    </button>
+                    <button class="btn-icon-sm" title="重命名" @click="startRename(a)">
+                      <Pencil :size="12" />
+                    </button>
+                    <button v-if="a.type !== 'video'" class="btn-icon-sm" title="绑定到…" @click="openBindDialog(a)">
+                      <Link2 :size="12" />
+                    </button>
+                    <button class="btn-icon-sm is-danger" title="删除" @click="deleteAsset(a)">
+                      <Trash2 :size="12" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div v-if="assetItems.length < assetTotal" class="assetlib-more">
+                <button class="btn btn-sm" :disabled="assetsLoading" @click="loadMoreAssets">
+                  {{ assetsLoading ? '加载中…' : `加载更多(${assetItems.length}/${assetTotal})` }}
+                </button>
+              </div>
+            </template>
+          </div>
+
           <!-- Production Navigator -->
         </template>
       </div>
@@ -1417,6 +1559,38 @@
         </button>
       </div>
 
+      <AssetPicker
+        :show="assetPicker.show"
+        :type="assetPicker.type"
+        :drama-id="dramaId"
+        :episode-id="epId"
+        @close="assetPicker.show = false"
+        @select="onAssetPicked"
+      />
+
+      <div v-if="bindDialog.show" class="overlay bind-overlay" @click.self="closeBindDialog">
+        <div class="card bind-dialog">
+          <div class="bind-dialog-head">
+            <span class="bind-dialog-title">绑定素材到…</span>
+            <button class="btn btn-ghost btn-icon ml-auto" @click="closeBindDialog">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+          </div>
+          <div class="bind-dialog-body">
+            <div v-if="!bindTargets.length" class="bind-dialog-empty dim">当前没有可绑定的目标</div>
+            <button
+              v-for="t in bindTargets"
+              :key="t.key"
+              class="bind-target-item"
+              @click="applyBindTarget(t)"
+            >
+              <span class="bind-target-label">{{ t.label }}</span>
+              <span class="bind-target-desc dim">{{ t.desc }}</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
       <div v-if="imageViewer.open && imageViewer.src" class="overlay image-viewer-overlay" @click.self="closeImageViewer">
         <div class="card image-viewer-dialog">
           <div class="image-viewer-head">
@@ -1439,10 +1613,13 @@
 import { toast } from 'vue-sonner'
 import {
   Users, MapPin, Video, ImageIcon, Layers, Mic2, FileText, FolderKanban, Clapperboard, Download,
+  Loader2, Music, Play, Star, Pencil, Link2, Trash2,
 } from 'lucide-vue-next'
-import { dramaAPI, episodeAPI, storyboardAPI, characterAPI, sceneAPI, imageAPI, videoAPI, composeAPI, mergeAPI, gridAPI, aiConfigAPI, voicesAPI } from '~/composables/useApi'
+import { dramaAPI, episodeAPI, storyboardAPI, characterAPI, sceneAPI, imageAPI, videoAPI, composeAPI, mergeAPI, gridAPI, aiConfigAPI, voicesAPI, assetAPI } from '~/composables/useApi'
 import { useAgent } from '~/composables/useAgent'
 import BaseSelect from '~/components/BaseSelect.vue'
+import AssetUploader from '~/components/AssetUploader.vue'
+import AssetPicker from '~/components/AssetPicker.vue'
 
 definePageMeta({ layout: 'studio' })
 
@@ -1468,7 +1645,11 @@ const mergeUrl = computed(() => mergeData.value?.merged_url || mergeData.value?.
 const scriptStep = ref(0)
 const prodTab = ref('chars')
 const prodTabIdx = computed({
-  get: () => prodTabDefs.value.findIndex(t => t.id === prodTab.value),
+  get: () => {
+    const idx = prodTabDefs.value.findIndex(t => t.id === prodTab.value)
+    // 'assets' tab lives outside prodTabDefs: treat it as after the last step
+    return idx === -1 ? prodTabDefs.value.length : idx
+  },
   set: (v) => { prodTab.value = prodTabDefs.value[v]?.id || 'chars' },
 })
 const frameMode = ref('first')
@@ -1503,9 +1684,15 @@ const pendingSceneImageIds = ref([])
 const pendingShotFrameKeys = ref([])
 const pendingVideoIds = ref([])
 const pendingComposeIds = ref([])
+const pendingTtsIds = ref([])
 const failedVideoMessages = ref({})
 const failedComposeMessages = ref({})
 const imageViewer = ref({ open: false, src: '', title: '' })
+
+// Polling lifecycle: set on unmount so every poll loop exits promptly
+let disposed = false
+let mergePollTimer = null
+let composePolling = false
 
 function configLabel(config) {
   if (!config) return '未配置'
@@ -1537,6 +1724,11 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleImageViewerKeydown)
+  disposed = true
+  if (mergePollTimer) {
+    clearInterval(mergePollTimer)
+    mergePollTimer = null
+  }
 })
 
 function isPendingSceneImage(id) {
@@ -1565,6 +1757,10 @@ function isPendingCompose(id) {
 
 function composeFailMessage(id) {
   return failedComposeMessages.value[id] || ''
+}
+
+function isPendingTts(id) {
+  return pendingTtsIds.value.includes(id)
 }
 
 function isNarratorCharacter(char) {
@@ -1980,6 +2176,7 @@ async function startGridGen() {
 
 async function pollGridStatus() {
   for (let i = 0; i < 120; i++) {
+    if (disposed) return
     await new Promise(r => setTimeout(r, 3000))
     try {
       const res = await gridAPI.status(gridGenId.value)
@@ -2481,11 +2678,62 @@ function sleep(ms) {
 function watchAsyncResult(check, attempts = 24, delay = 2500) {
   void (async () => {
     for (let i = 0; i < attempts; i++) {
+      if (disposed) return
       await sleep(delay)
+      if (disposed) return
       await refresh()
       if (check()) return
     }
   })()
+}
+
+function watchCharImage(id) {
+  watchAsyncResult(() => {
+    const char = chars.value.find(c => c.id === id)
+    const done = !!(char?.image_url || char?.imageUrl)
+    if (done) pendingCharImageIds.value = pendingCharImageIds.value.filter(item => item !== id)
+    return done
+  })
+}
+
+function watchSceneImage(id) {
+  watchAsyncResult(() => {
+    const scene = scenes.value.find(s => s.id === id)
+    const done = !!(scene?.image_url || scene?.imageUrl)
+    if (done) pendingSceneImageIds.value = pendingSceneImageIds.value.filter(item => item !== id)
+    return done
+  })
+}
+
+function watchShotFrame(sbId, frameType) {
+  const key = framePendingKey(sbId, frameType)
+  watchAsyncResult(() => {
+    const target = sbs.value.find(s => s.id === sbId)
+    const done = frameType === 'first_frame' ? !!getFirstFrame(target) : !!getLastFrame(target)
+    if (done) pendingShotFrameKeys.value = pendingShotFrameKeys.value.filter(item => item !== key)
+    return done
+  })
+}
+
+function watchTtsIds(ids) {
+  watchAsyncResult(() => {
+    let settled = true
+    for (const id of ids) {
+      const sb = sbs.value.find(s => s.id === id)
+      const status = sb?.tts_status || sb?.ttsStatus || ''
+      const done = hasTTS(sb) || status === 'completed'
+      const failed = status === 'failed'
+      if (done || failed) {
+        if (pendingTtsIds.value.includes(id)) {
+          pendingTtsIds.value = pendingTtsIds.value.filter(item => item !== id)
+          if (failed) toast.error(`镜头 #${sb?.storyboard_number || sb?.storyboardNumber || id} 配音生成失败`)
+        }
+      } else {
+        settled = false
+      }
+    }
+    return settled
+  }, 80, 3000)
 }
 
 async function genCharImg(id) {
@@ -2494,12 +2742,7 @@ async function genCharImg(id) {
     await characterAPI.generateImage(id, epId.value)
     toast.success('角色图片生成中')
     await refresh()
-    watchAsyncResult(() => {
-      const char = chars.value.find(c => c.id === id)
-      const done = !!(char?.image_url || char?.imageUrl)
-      if (done) pendingCharImageIds.value = pendingCharImageIds.value.filter(item => item !== id)
-      return done
-    })
+    watchCharImage(id)
   } catch (e) {
     pendingCharImageIds.value = pendingCharImageIds.value.filter(item => item !== id)
     toast.error(e.message)
@@ -2529,29 +2772,30 @@ async function genSceneImg(id) {
     await sceneAPI.generateImage(id, epId.value)
     toast.success('场景图片生成中')
     await refresh()
-    watchAsyncResult(() => {
-      const scene = scenes.value.find(s => s.id === id)
-      const done = !!(scene?.image_url || scene?.imageUrl)
-      if (done) pendingSceneImageIds.value = pendingSceneImageIds.value.filter(item => item !== id)
-      return done
-    })
+    watchSceneImage(id)
   } catch (e) {
     pendingSceneImageIds.value = pendingSceneImageIds.value.filter(item => item !== id)
     toast.error(e.message)
   }
 }
-function batchSceneImages() {
+async function batchSceneImages() {
   const ids = scenes.value.filter(s => !(s.image_url || s.imageUrl)).map(s => s.id)
   if (!ids.length) { toast.info('所有场景图片已生成'); return }
   pendingSceneImageIds.value = [...new Set([...pendingSceneImageIds.value, ...ids])]
-  ids.forEach(id => { sceneAPI.generateImage(id, epId.value).then(() => refresh()).catch(e => toast.error(e.message)) })
-  toast.success('场景图片批量生成中')
-  watchAsyncResult(() => ids.every(id => {
-    const scene = scenes.value.find(s => s.id === id)
-    const done = !!(scene?.image_url || scene?.imageUrl)
-    if (done) pendingSceneImageIds.value = pendingSceneImageIds.value.filter(item => item !== id)
-    return done
-  }), 36)
+  try {
+    await sceneAPI.batchImages(ids, epId.value)
+    toast.success('场景图片批量生成中')
+    await refresh()
+    watchAsyncResult(() => ids.every(id => {
+      const scene = scenes.value.find(s => s.id === id)
+      const done = !!(scene?.image_url || scene?.imageUrl)
+      if (done) pendingSceneImageIds.value = pendingSceneImageIds.value.filter(item => item !== id)
+      return done
+    }), 36)
+  } catch (e) {
+    pendingSceneImageIds.value = pendingSceneImageIds.value.filter(item => !ids.includes(item))
+    toast.error(e.message)
+  }
 }
 
 const IGNORE_TTS_SPEAKERS = /^(环境音|环境声|音效|效果音|sfx|sound ?effect|bgm|背景音|背景音乐|ambient)$/i
@@ -2588,23 +2832,32 @@ function getDialogueSpeaker(sb) {
 }
 async function genShotTTS(sb) {
   try {
+    if (!isPendingTts(sb.id)) pendingTtsIds.value.push(sb.id)
     await storyboardAPI.generateTTS(sb.id)
-    toast.success(`镜头 #${sb.storyboard_number || sb.storyboardNumber || sb.id} 配音已生成`)
+    toast.success(`镜头 #${sb.storyboard_number || sb.storyboardNumber || sb.id} 配音生成中`)
     await refresh()
-  } catch (e) { toast.error(e.message) }
+    watchTtsIds([sb.id])
+  } catch (e) {
+    pendingTtsIds.value = pendingTtsIds.value.filter(item => item !== sb.id)
+    toast.error(e.message)
+  }
 }
 async function batchShotTTS() {
-  const pending = sbs.value.filter(sb => hasDialogue(sb) && !hasTTS(sb))
+  const pending = sbs.value.filter(sb => hasDialogue(sb) && !hasTTS(sb) && !isPendingTts(sb.id))
   if (!pending.length) {
-    toast.info(ttsEligibleCount.value ? '所有镜头配音已生成' : '当前没有可生成的对白或旁白')
+    toast.info(ttsEligibleCount.value ? '所有镜头配音已生成或正在生成' : '当前没有可生成的对白或旁白')
     return
   }
-  const results = await Promise.allSettled(pending.map(sb => storyboardAPI.generateTTS(sb.id)))
-  const okCount = results.filter(r => r.status === 'fulfilled').length
-  const failCount = results.length - okCount
-  if (okCount) toast.success(`已生成 ${okCount} 条镜头配音`)
-  if (failCount) toast.error(`${failCount} 条镜头配音生成失败`)
-  await refresh()
+  const ids = pending.map(sb => sb.id)
+  try {
+    const res = await storyboardAPI.batchTTS(ids)
+    pendingTtsIds.value = [...new Set([...pendingTtsIds.value, ...ids])]
+    toast.success(`已提交 ${res?.count ?? ids.length} 条配音生成`)
+    await refresh()
+    watchTtsIds(ids)
+  } catch (e) {
+    toast.error(e.message)
+  }
 }
 
 function getFirstFrame(s) { return s?.first_frame_image || s?.firstFrameImage || null }
@@ -2685,12 +2938,7 @@ async function genShotFrame(sb, frameType) {
     await imageAPI.generate(body)
     toast.success(frameType === 'first_frame' ? '首帧生成中' : '尾帧生成中')
     await refresh()
-    watchAsyncResult(() => {
-      const target = sbs.value.find(s => s.id === sb.id)
-      const done = frameType === 'first_frame' ? !!getFirstFrame(target) : !!getLastFrame(target)
-      if (done) pendingShotFrameKeys.value = pendingShotFrameKeys.value.filter(item => item !== key)
-      return done
-    })
+    watchShotFrame(sb.id, frameType)
   } catch (e) {
     pendingShotFrameKeys.value = pendingShotFrameKeys.value.filter(item => item !== key)
     toast.error(e.message)
@@ -2733,6 +2981,7 @@ async function pollVideoGeneration(generationId, storyboardId) {
     return
   }
   for (let i = 0; i < 120; i++) {
+    if (disposed) return
     await sleep(4000)
     try {
       const res = await videoAPI.get(generationId)
@@ -2766,9 +3015,9 @@ async function doCompose(sb) {
     delete failedComposeMessages.value[sb.id]
     if (!isPendingCompose(sb.id)) pendingComposeIds.value.push(sb.id)
     await composeAPI.shot(sb.id)
-    toast.success('合成完成')
-    pendingComposeIds.value = pendingComposeIds.value.filter(item => item !== sb.id)
-    refresh()
+    toast.success('合成任务已提交')
+    await refresh()
+    pollComposeStatus()
   } catch (e) {
     pendingComposeIds.value = pendingComposeIds.value.filter(item => item !== sb.id)
     failedComposeMessages.value = {
@@ -2802,40 +3051,58 @@ async function batchCompose() {
 }
 async function doMerge() {
   await mergeAPI.merge(epId.value); toast.success('拼接中...')
-  const poll = setInterval(async () => {
+  startMergePolling()
+}
+
+function startMergePolling() {
+  if (mergePollTimer) return
+  mergePollTimer = setInterval(async () => {
+    if (disposed) {
+      clearInterval(mergePollTimer)
+      mergePollTimer = null
+      return
+    }
     try { mergeData.value = await mergeAPI.status(epId.value) } catch {}
     if (mergeData.value?.status === 'completed' || mergeData.value?.status === 'failed') {
-      clearInterval(poll)
+      clearInterval(mergePollTimer)
+      mergePollTimer = null
       mergeData.value.status === 'completed' ? toast.success('拼接完成') : toast.error('拼接失败')
     }
   }, 3000)
 }
 
 async function pollComposeStatus() {
-  for (let i = 0; i < 120; i++) {
-    await sleep(3000)
-    try {
-      const res = await composeAPI.status(epId.value)
-      await refresh()
-      const items = Array.isArray(res?.items) ? res.items : []
-      const processingIds = items.filter(item => item.status === 'compose_processing').map(item => item.id)
-      pendingComposeIds.value = processingIds
+  if (composePolling) return
+  composePolling = true
+  try {
+    for (let i = 0; i < 120; i++) {
+      if (disposed) return
+      await sleep(3000)
+      try {
+        const res = await composeAPI.status(epId.value)
+        await refresh()
+        const items = Array.isArray(res?.items) ? res.items : []
+        const processingIds = items.filter(item => item.status === 'compose_processing' || item.status === 'compose_queued').map(item => item.id)
+        pendingComposeIds.value = processingIds
 
-      const failedItems = items.filter(item => item.status === 'compose_failed')
-      if (failedItems.length) {
-        const next = { ...failedComposeMessages.value }
-        failedItems.forEach((item) => {
-          next[item.id] = item.error_msg || item.errorMsg || '视频合成失败'
-        })
-        failedComposeMessages.value = next
-      }
+        const failedItems = items.filter(item => item.status === 'compose_failed')
+        if (failedItems.length) {
+          const next = { ...failedComposeMessages.value }
+          failedItems.forEach((item) => {
+            next[item.id] = item.error_msg || item.errorMsg || '视频合成失败'
+          })
+          failedComposeMessages.value = next
+        }
 
-      if (!processingIds.length) {
-        if (failedItems.length) toast.error(`有 ${failedItems.length} 个镜头合成失败`)
-        else toast.success('批量合成完成')
-        return
-      }
-    } catch {}
+        if (!processingIds.length) {
+          if (failedItems.length) toast.error(`有 ${failedItems.length} 个镜头合成失败`)
+          else toast.success('批量合成完成')
+          return
+        }
+      } catch {}
+    }
+  } finally {
+    composePolling = false
   }
 }
 function getRefs(sb) {
@@ -2887,7 +3154,267 @@ async function loadVoices() {
 }
 
 watch([lockedAudioConfigId, audioConfigs], () => { loadVoices() }, { deep: true })
-onMounted(() => { refresh(); loadConfigs(); loadVoices() })
+
+// ===== Asset upload & bind =====
+async function bindCharImage(id, url) {
+  if (!url) return
+  try {
+    await characterAPI.update(id, { image_url: url })
+    toast.success('已绑定角色形象')
+    await refresh()
+  } catch (e) { toast.error(e.message) }
+}
+
+async function bindSceneImage(id, url) {
+  if (!url) return
+  try {
+    await sceneAPI.update(id, { image_url: url })
+    toast.success('已绑定场景图')
+    await refresh()
+  } catch (e) { toast.error(e.message) }
+}
+
+async function bindShotTts(id, url) {
+  if (!url) return
+  try {
+    await storyboardAPI.bindTTS(id, url)
+    toast.success('已绑定配音')
+    await refresh()
+  } catch (e) { toast.error(e.message) }
+}
+
+const assetPicker = ref({ show: false, type: 'image', context: null })
+
+function openAssetPicker(type, context) {
+  assetPicker.value = { show: true, type, context }
+}
+
+function onAssetPicked(asset) {
+  const ctx = assetPicker.value.context
+  assetPicker.value = { show: false, type: assetPicker.value.type, context: null }
+  const url = asset?.url
+  if (!ctx || !url) return
+  if (ctx.kind === 'char') bindCharImage(ctx.id, url)
+  else if (ctx.kind === 'scene') bindSceneImage(ctx.id, url)
+  else if (ctx.kind === 'tts') bindShotTts(ctx.id, url)
+}
+
+// ===== Asset library tab =====
+const assetTypeFilters = [
+  { id: '', label: '全部' },
+  { id: 'image', label: '图片' },
+  { id: 'video', label: '视频' },
+  { id: 'audio', label: '音频' },
+]
+const assetItems = ref([])
+const assetTotal = ref(0)
+const assetPage = ref(1)
+const assetType = ref('')
+const assetQuery = ref('')
+const assetFavOnly = ref(false)
+const assetsLoading = ref(false)
+const renamingId = ref(null)
+const renameValue = ref('')
+const playingVideoId = ref(null)
+const bindDialog = ref({ show: false, asset: null })
+
+function assetUrl(a) {
+  const u = a?.url || ''
+  return u ? (u.startsWith('/') ? u : `/${u}`) : ''
+}
+
+function assetThumbUrl(a) {
+  const u = a?.thumbnailUrl || a?.thumbnail_url || a?.url || ''
+  return u ? (u.startsWith('/') ? u : `/${u}`) : ''
+}
+
+function formatAssetTime(v) {
+  if (!v) return ''
+  const d = new Date(v)
+  if (Number.isNaN(d.getTime())) return String(v)
+  const pad = n => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+async function loadAssets(reset = false) {
+  if (assetsLoading.value) return
+  assetsLoading.value = true
+  if (reset) assetPage.value = 1
+  try {
+    const res = await assetAPI.list({
+      drama_id: dramaId,
+      episode_id: epId.value || undefined,
+      type: assetType.value || undefined,
+      q: assetQuery.value.trim() || undefined,
+      favorite: assetFavOnly.value ? 1 : undefined,
+      page: assetPage.value,
+      page_size: 60,
+    })
+    const list = res?.items || []
+    assetItems.value = reset || assetPage.value === 1 ? list : [...assetItems.value, ...list]
+    assetTotal.value = res?.total ?? list.length
+  } catch (e) {
+    toast.error(e.message || '素材加载失败')
+  } finally {
+    assetsLoading.value = false
+  }
+}
+
+async function loadMoreAssets() {
+  assetPage.value += 1
+  await loadAssets()
+}
+
+async function toggleAssetFavorite(a) {
+  try {
+    const next = !a.isFavorite
+    await assetAPI.update(a.id, { isFavorite: next })
+    a.isFavorite = next
+    if (assetFavOnly.value && !next) {
+      assetItems.value = assetItems.value.filter(item => item.id !== a.id)
+      assetTotal.value = Math.max(0, assetTotal.value - 1)
+    }
+  } catch (e) { toast.error(e.message) }
+}
+
+function startRename(a) {
+  renamingId.value = a.id
+  renameValue.value = a.name || ''
+}
+
+async function submitRename(a) {
+  const name = renameValue.value.trim()
+  renamingId.value = null
+  if (!name || name === a.name) return
+  try {
+    await assetAPI.update(a.id, { name })
+    a.name = name
+    toast.success('已重命名')
+  } catch (e) { toast.error(e.message) }
+}
+
+async function deleteAsset(a) {
+  if (!confirm(`确定删除素材「${a.name || a.id}」？`)) return
+  try {
+    await assetAPI.del(a.id)
+    assetItems.value = assetItems.value.filter(item => item.id !== a.id)
+    assetTotal.value = Math.max(0, assetTotal.value - 1)
+    toast.success('已删除')
+  } catch (e) { toast.error(e.message) }
+}
+
+function openBindDialog(a) {
+  bindDialog.value = { show: true, asset: a }
+}
+
+function closeBindDialog() {
+  bindDialog.value = { show: false, asset: null }
+}
+
+const bindTargets = computed(() => {
+  const a = bindDialog.value.asset
+  if (!a) return []
+  const url = assetUrl(a)
+  if (!url) return []
+  if (a.type === 'image') {
+    return [
+      ...visualChars.value.map(c => ({
+        key: `char-${c.id}`,
+        label: c.name,
+        desc: `绑定为角色形象 · ${c.role || '角色'}`,
+        run: () => bindCharImage(c.id, url),
+      })),
+      ...scenes.value.map(s => ({
+        key: `scene-${s.id}`,
+        label: s.location || `场景 #${s.id}`,
+        desc: `绑定为场景图 · ${s.time || '未设时间'}`,
+        run: () => bindSceneImage(s.id, url),
+      })),
+    ]
+  }
+  if (a.type === 'audio') {
+    return sbs.value.filter(hasDialogue).map((sb, i) => {
+      const num = String(sb.storyboard_number || sb.storyboardNumber || i + 1).padStart(2, '0')
+      const text = getDialogueText(sb) || sb.description || ''
+      return {
+        key: `sb-${sb.id}`,
+        label: `镜头 #${num} · ${getDialogueSpeaker(sb)}`,
+        desc: text.length > 42 ? `${text.slice(0, 42)}…` : text || '绑定为镜头配音',
+        run: () => bindShotTts(sb.id, url),
+      }
+    })
+  }
+  return []
+})
+
+async function applyBindTarget(t) {
+  closeBindDialog()
+  await t.run()
+}
+
+watch(prodTab, (v) => { if (v === 'assets') loadAssets(true) })
+
+// ===== Restore in-flight tasks after page entry =====
+async function restoreActiveTasks() {
+  if (!epId.value) return
+  let tasks
+  try { tasks = await episodeAPI.activeTasks(epId.value) } catch { return }
+  if (!tasks || disposed) return
+
+  for (const img of tasks.images || []) {
+    if (img.characterId) {
+      if (!pendingCharImageIds.value.includes(img.characterId)) {
+        pendingCharImageIds.value.push(img.characterId)
+        watchCharImage(img.characterId)
+      }
+    } else if (img.sceneId) {
+      if (!pendingSceneImageIds.value.includes(img.sceneId)) {
+        pendingSceneImageIds.value.push(img.sceneId)
+        watchSceneImage(img.sceneId)
+      }
+    } else if (img.storyboardId && ['first_frame', 'last_frame'].includes(img.frameType)) {
+      const key = framePendingKey(img.storyboardId, img.frameType)
+      if (!pendingShotFrameKeys.value.includes(key)) {
+        pendingShotFrameKeys.value.push(key)
+        watchShotFrame(img.storyboardId, img.frameType)
+      }
+    }
+  }
+
+  for (const v of tasks.videos || []) {
+    if (!v.storyboardId || pendingVideoIds.value.includes(v.storyboardId)) continue
+    pendingVideoIds.value.push(v.storyboardId)
+    pollVideoGeneration(v.id, v.storyboardId)
+  }
+
+  const ttsIds = (tasks.tts || [])
+    .filter(item => item.storyboardId && !['completed', 'failed'].includes(item.status))
+    .map(item => item.storyboardId)
+  const newTtsIds = ttsIds.filter(id => !pendingTtsIds.value.includes(id))
+  if (newTtsIds.length) {
+    pendingTtsIds.value = [...pendingTtsIds.value, ...newTtsIds]
+    watchTtsIds([...new Set(ttsIds)])
+  }
+
+  const composeIds = (tasks.composes || [])
+    .filter(item => item.storyboardId && !['completed', 'failed'].includes(item.status))
+    .map(item => item.storyboardId)
+  if (composeIds.length) {
+    pendingComposeIds.value = [...new Set([...pendingComposeIds.value, ...composeIds])]
+    pollComposeStatus()
+  }
+
+  if ((tasks.merges || []).some(m => !['completed', 'failed'].includes(m.status))) {
+    startMergePolling()
+  }
+}
+
+onMounted(async () => {
+  await refresh()
+  restoreActiveTasks()
+  loadConfigs()
+  loadVoices()
+})
 </script>
 
 <style scoped>
@@ -3656,7 +4183,81 @@ onMounted(() => { refresh(); loadConfigs(); loadVoices() })
 .asset-body { padding: 8px 10px; }
 .asset-name { font-size: 13px; font-weight: 600; }
 .asset-meta { font-size: 11px; }
-.asset-foot { display: flex; align-items: center; gap: 4px; padding: 6px 10px; border-top: 1px solid var(--border); }
+.asset-foot { display: flex; align-items: center; gap: 4px; padding: 6px 10px; border-top: 1px solid var(--border); flex-wrap: wrap; }
+.asset-foot-actions { flex-wrap: wrap; }
+.asset-foot-actions .btn { flex-shrink: 0; }
+
+/* ===== Asset library tab ===== */
+.assetlib-filters { display: flex; gap: 2px; background: var(--bg-2); border-radius: var(--radius); padding: 2px; }
+.assetlib-filter {
+  border: none; background: transparent; cursor: pointer;
+  padding: 3px 10px; font-size: 11px; border-radius: 6px; color: var(--text-2);
+  font-family: var(--font-body); transition: all 0.15s var(--ease-out); white-space: nowrap;
+}
+.assetlib-filter:hover { color: var(--text-0); }
+.assetlib-filter.active { background: var(--bg-0); color: var(--text-0); font-weight: 600; box-shadow: var(--shadow-xs); }
+.assetlib-fav {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 12px; color: var(--text-2); cursor: pointer; user-select: none; white-space: nowrap;
+}
+.assetlib-fav input { accent-color: var(--accent); cursor: pointer; }
+.assetlib-search { width: 190px; padding: 5px 10px; font-size: 12px; }
+.assetlib-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }
+.assetlib-audio-cover {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 10px; padding: 16px 12px; background: var(--bg-2); color: var(--text-3); min-height: 96px;
+}
+.assetlib-audio { width: 100%; height: 30px; }
+.assetlib-play {
+  position: absolute; inset: 0; margin: auto; width: 38px; height: 38px;
+  border-radius: 50%; border: none; cursor: pointer;
+  background: rgba(7, 11, 21, 0.55); color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  transition: background 0.15s, transform 0.15s;
+}
+.assetlib-play:hover { background: rgba(7, 11, 21, 0.75); transform: scale(1.06); }
+.assetlib-rename { display: flex; align-items: center; gap: 6px; }
+.assetlib-rename-input { flex: 1; min-width: 0; padding: 4px 8px; font-size: 12px; }
+.assetlib-foot { justify-content: flex-end; gap: 2px; }
+.assetlib-more { display: flex; justify-content: center; padding: 4px 0 8px; }
+.btn-icon-sm {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; border-radius: var(--radius-sm);
+  border: 1px solid transparent; background: transparent; color: var(--text-2);
+  cursor: pointer; transition: all 0.15s var(--ease-out);
+}
+.btn-icon-sm:hover { background: var(--bg-hover); border-color: var(--border); color: var(--text-0); }
+.btn-icon-sm.is-fav { color: var(--warning); }
+.btn-icon-sm.is-danger:hover { background: var(--error-bg); border-color: transparent; color: var(--error); }
+
+/* ===== Bind target dialog ===== */
+.bind-overlay { z-index: 115; padding: 24px; }
+.bind-dialog {
+  width: min(460px, calc(100vw - 48px));
+  max-height: calc(100vh - 120px);
+  display: flex; flex-direction: column; overflow: hidden;
+  animation: scaleIn 0.18s var(--ease-out);
+}
+.bind-dialog-head {
+  display: flex; align-items: center;
+  padding: 13px 14px 10px; border-bottom: 1px solid var(--border);
+}
+.bind-dialog-title { font-size: 14px; font-weight: 600; font-family: var(--font-display); }
+.bind-dialog-body {
+  flex: 1; overflow-y: auto; padding: 8px;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.bind-dialog-empty { padding: 24px 12px; text-align: center; font-size: 13px; }
+.bind-target-item {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  width: 100%; padding: 9px 12px; text-align: left;
+  border: none; background: transparent; border-radius: var(--radius);
+  cursor: pointer; font-family: var(--font-body);
+  transition: background 0.12s;
+}
+.bind-target-item:hover { background: var(--bg-hover); }
+.bind-target-label { font-size: 13px; font-weight: 600; color: var(--text-0); }
+.bind-target-desc { font-size: 11px; }
 
 /* Frame grid */
 .frame-grid { display: flex; flex-direction: column; gap: 8px; }

@@ -9,9 +9,17 @@ import { v4 as uuid } from 'uuid'
 import { getAudioConfigById } from './ai.js'
 import { getTTSAdapter } from './adapters/registry.js'
 import { logTaskError, logTaskPayload, logTaskProgress, logTaskStart, logTaskSuccess, redactUrl } from '../utils/task-logger.js'
+import { registerAsset } from './asset-register.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const STORAGE_ROOT = process.env.STORAGE_PATH || path.resolve(__dirname, '../../../data/static')
+
+const AUDIO_MIME_BY_FORMAT: Record<string, string> = {
+  mp3: 'audio/mpeg',
+  wav: 'audio/wav',
+  m4a: 'audio/x-m4a',
+  aac: 'audio/aac',
+}
 
 interface TTSParams {
   text: string
@@ -20,6 +28,10 @@ interface TTSParams {
   speed?: number
   emotion?: string
   configId?: number | null
+  /** 可选 storyboard 上下文：提供时生成成功后自动注册素材库 */
+  storyboardId?: number | null
+  episodeId?: number | null
+  dramaId?: number | null
 }
 
 /**
@@ -93,6 +105,30 @@ export async function generateTTS(params: TTSParams): Promise<string> {
     bytes: buffer.length,
     audioMs: parsed.audioLength,
   })
+
+  // 有 storyboard 上下文时注册素材库（compose 内联/试听等无上下文调用自动跳过）
+  if (params.storyboardId) {
+    const format = parsed.format || 'mp3'
+    await registerAsset({
+      type: 'audio',
+      category: 'tts',
+      source: 'ai',
+      dramaId: params.dramaId ?? null,
+      episodeId: params.episodeId ?? null,
+      storyboardId: params.storyboardId,
+      name: params.text.slice(0, 40) || 'TTS 音频',
+      description: params.text,
+      url: `/${relativePath}`,
+      localPath: relativePath,
+      fileSize: buffer.length,
+      mimeType: AUDIO_MIME_BY_FORMAT[format] || null,
+      duration: typeof parsed.audioLength === 'number' && parsed.audioLength > 0
+        ? Math.round(parsed.audioLength / 1000)
+        : null,
+      format,
+    })
+  }
+
   return relativePath
 }
 

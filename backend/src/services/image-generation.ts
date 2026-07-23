@@ -6,6 +6,7 @@ import { downloadFile, readImageAsCompressedDataUrl, saveBase64Image } from '../
 import { getImageAdapter } from './adapters/registry'
 import type { AIConfig } from './adapters/types'
 import { enqueueImageGeneration } from '../queue/jobs.js'
+import { getStoryboardAssetContext, registerAsset } from './asset-register.js'
 import { logTaskError, logTaskPayload, logTaskProgress, logTaskStart, logTaskSuccess, logTaskWarn, redactUrl } from '../utils/task-logger.js'
 
 interface GenerateImageParams {
@@ -287,6 +288,65 @@ async function pollImageTask(id: number, config: AIConfig, taskId: string) {
   }
 }
 
+/**
+ * AI 图片完成后注册素材库（容错，不阻断主流程）
+ * category：character / scene / first_frame / last_frame / grid / composed_image
+ */
+async function registerImageAsset(record: typeof schema.imageGenerations.$inferSelect | undefined, localPath: string, imageGenId: number) {
+  if (!record) return
+  const frameType = record.frameType || ''
+
+  let category = 'composed_image'
+  let dramaId = record.dramaId ?? null
+  let episodeId: number | null = null
+  let storyboardNum: number | null = null
+
+  if (record.characterId) {
+    category = 'character'
+    if (!dramaId) {
+      const [char] = await db.select().from(schema.characters).where(eq(schema.characters.id, record.characterId))
+      dramaId = char?.dramaId ?? null
+    }
+  } else if (record.sceneId) {
+    category = 'scene'
+    const [scene] = await db.select().from(schema.scenes).where(eq(schema.scenes.id, record.sceneId))
+    if (scene) {
+      dramaId = dramaId ?? scene.dramaId
+      episodeId = scene.episodeId ?? null
+    }
+  } else if (frameType.startsWith('grid_')) {
+    category = 'grid'
+  } else if (record.storyboardId) {
+    category = frameType === 'first_frame' ? 'first_frame'
+      : frameType === 'last_frame' ? 'last_frame'
+      : 'composed_image'
+  }
+
+  if (record.storyboardId) {
+    const ctx = await getStoryboardAssetContext(record.storyboardId)
+    if (ctx) {
+      episodeId = episodeId ?? ctx.episodeId
+      storyboardNum = ctx.storyboardNum
+      dramaId = dramaId ?? ctx.dramaId
+    }
+  }
+
+  await registerAsset({
+    type: 'image',
+    category,
+    source: 'ai',
+    dramaId,
+    episodeId,
+    storyboardId: record.storyboardId ?? null,
+    storyboardNum,
+    name: (record.prompt || '').slice(0, 40) || `image-${imageGenId}`,
+    description: record.prompt,
+    url: `/${localPath}`,
+    localPath,
+    imageGenId,
+  })
+}
+
 async function handleImageComplete(id: number, provider: string, imageUrl: string) {
   const localPath = await downloadFile(imageUrl, 'images')
   const rows = await db.select().from(schema.imageGenerations).where(eq(schema.imageGenerations.id, id))
@@ -312,6 +372,8 @@ async function handleImageComplete(id: number, provider: string, imageUrl: strin
   if (record?.sceneId) {
     await db.update(schema.scenes).set({ imageUrl: localPath, status: 'completed', updatedAt: now() }).where(eq(schema.scenes.id, record.sceneId))
   }
+
+  await registerImageAsset(record, localPath, id)
 }
 
 async function handleImageCompleteBase64(id: number, provider: string, base64Data: string, mimeType: string) {
@@ -339,4 +401,6 @@ async function handleImageCompleteBase64(id: number, provider: string, base64Dat
   if (record?.sceneId) {
     await db.update(schema.scenes).set({ imageUrl: localPath, status: 'completed', updatedAt: now() }).where(eq(schema.scenes.id, record.sceneId))
   }
+
+  await registerImageAsset(record, localPath, id)
 }

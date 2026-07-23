@@ -6,6 +6,7 @@ import { downloadFile, readImageAsCompressedDataUrl } from '../utils/storage.js'
 import { getVideoAdapter } from './adapters/registry'
 import type { AIConfig } from './adapters/types'
 import { enqueueVideoGeneration } from '../queue/jobs.js'
+import { getStoryboardAssetContext, registerAsset } from './asset-register.js'
 import { logTaskError, logTaskPayload, logTaskProgress, logTaskStart, logTaskSuccess, logTaskWarn, redactUrl } from '../utils/task-logger.js'
 
 interface GenerateVideoParams {
@@ -265,4 +266,34 @@ async function handleVideoComplete(id: number, videoUrl: string, duration: numbe
       .where(eq(schema.storyboards.id, storyboardId))
 
   }
+
+  // 注册素材库（容错，不阻断主流程）
+  const [record] = await db.select().from(schema.videoGenerations).where(eq(schema.videoGenerations.id, id))
+  const effectiveStoryboardId = storyboardId ?? record?.storyboardId ?? null
+  let episodeId: number | null = null
+  let storyboardNum: number | null = null
+  let dramaId = record?.dramaId ?? null
+  if (effectiveStoryboardId) {
+    const ctx = await getStoryboardAssetContext(effectiveStoryboardId)
+    if (ctx) {
+      episodeId = ctx.episodeId
+      storyboardNum = ctx.storyboardNum
+      dramaId = dramaId ?? ctx.dramaId
+    }
+  }
+  await registerAsset({
+    type: 'video',
+    category: 'generated_video',
+    source: 'ai',
+    dramaId,
+    episodeId,
+    storyboardId: effectiveStoryboardId,
+    storyboardNum,
+    name: (record?.prompt || '').slice(0, 40) || `video-${id}`,
+    description: record?.prompt,
+    url: `/${localPath}`,
+    localPath,
+    duration: duration ?? record?.duration ?? null,
+    videoGenId: id,
+  })
 }

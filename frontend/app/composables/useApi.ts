@@ -13,11 +13,12 @@ export function setAuthToken(token: string) {
 }
 
 async function req<T = any>(method: string, path: string, body?: any): Promise<T> {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  const isFormData = typeof FormData !== 'undefined' && body instanceof FormData
+  const headers: Record<string, string> = isFormData ? {} : { 'Content-Type': 'application/json' }
   const token = getAuthToken()
   if (token) headers.Authorization = `Bearer ${token}`
   const opts: RequestInit = { method, headers }
-  if (body) opts.body = JSON.stringify(body)
+  if (body) opts.body = isFormData ? body : JSON.stringify(body)
 
   const start = performance.now()
   console.log(`%c[API] %c${method} %c${path}`, 'color:#888', 'color:#4fc3f7;font-weight:bold', 'color:#ccc', body || '')
@@ -83,12 +84,15 @@ export const episodeAPI = {
   scenes: (id: number) => api.get(`/episodes/${id}/scenes`),
   storyboards: (id: number) => api.get(`/episodes/${id}/storyboards`),
   pipelineStatus: (id: number) => api.get(`/episodes/${id}/pipeline-status`),
+  activeTasks: (id: number) => api.get(`/episodes/${id}/active-tasks`),
 }
 
 export const storyboardAPI = {
   create: (data: any) => api.post('/storyboards', data),
   update: (id: number, data: any) => api.put(`/storyboards/${id}`, data),
   generateTTS: (id: number) => api.post(`/storyboards/${id}/generate-tts`),
+  batchTTS: (ids: number[]) => api.post('/storyboards/batch-generate-tts', { ids }),
+  bindTTS: (id: number, url: string) => api.post(`/storyboards/${id}/bind-tts`, { url }),
   del: (id: number) => api.del(`/storyboards/${id}`),
 }
 
@@ -100,7 +104,9 @@ export const characterAPI = {
 }
 
 export const sceneAPI = {
+  update: (id: number, data: any) => api.put(`/scenes/${id}`, data),
   generateImage: (id: number, episodeId: number) => api.post(`/scenes/${id}/generate-image`, { episode_id: episodeId }),
+  batchImages: (ids: number[], episodeId: number) => api.post('/scenes/batch-generate-images', { ids, episode_id: episodeId }),
 }
 
 export const imageAPI = {
@@ -161,4 +167,36 @@ export const skillsAPI = {
 export const voicesAPI = {
   list: (provider?: string) => api.get(`/ai-voices${provider ? `?provider=${provider}` : ''}`),
   sync: () => api.post('/ai-voices/sync', {}),
+}
+
+export const uploadAPI = {
+  image: (file: File, extra?: Record<string, any>) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    for (const [k, v] of Object.entries(extra || {})) {
+      if (v !== undefined && v !== null && v !== '') fd.append(k, String(v))
+    }
+    return req('POST', '/upload/image', fd)
+  },
+  audio: (file: File, extra?: Record<string, any>) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    for (const [k, v] of Object.entries(extra || {})) {
+      if (v !== undefined && v !== null && v !== '') fd.append(k, String(v))
+    }
+    return req('POST', '/upload/audio', fd)
+  },
+}
+
+export const assetAPI = {
+  list: (params?: { drama_id?: number | string; episode_id?: number | string; type?: string; category?: string; favorite?: number | string; q?: string; page?: number; page_size?: number }) => {
+    const query = new URLSearchParams()
+    for (const [k, v] of Object.entries(params || {})) {
+      if (v !== undefined && v !== null && v !== '') query.set(k, String(v))
+    }
+    return api.get(`/assets${query.size ? `?${query.toString()}` : ''}`)
+  },
+  get: (id: number) => api.get(`/assets/${id}`),
+  update: (id: number, data: any) => api.put(`/assets/${id}`, data),
+  del: (id: number) => api.del(`/assets/${id}`),
 }

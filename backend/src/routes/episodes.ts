@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import { eq } from 'drizzle-orm'
+import { eq, inArray } from 'drizzle-orm'
 import { db, schema } from '../db/index.js'
 import { success, notFound, badRequest, now } from '../utils/response.js'
 import { toSnakeCaseArray, toSnakeCase } from '../utils/transform.js'
@@ -140,6 +140,74 @@ app.get('/:episode_id/storyboards', async (c) => {
   })))
 })
 
+// GET /episodes/:id/active-tasks — 该集所有进行中任务（页面刷新后恢复进度用）
+app.get('/:id/active-tasks', async (c) => {
+  const episodeId = Number(c.req.param('id'))
+  const dramaId = await getDramaIdByEpisodeId(episodeId)
+  const forbidden = await requireResolvedDramaRole(c, dramaId, 'viewer')
+  if (forbidden) return forbidden
+
+  const [ep] = await db.select().from(schema.episodes).where(eq(schema.episodes.id, episodeId))
+  if (!ep) return notFound(c, 'Episode not found')
+
+  const ACTIVE_STATUSES = ['queued', 'processing']
+
+  const sbs = (await db.select().from(schema.storyboards)
+    .where(eq(schema.storyboards.episodeId, episodeId)))
+    .filter(sb => !sb.deletedAt)
+  const sbIds = sbs.map(sb => sb.id)
+
+  const episodeCharLinks = await db.select().from(schema.episodeCharacters)
+    .where(eq(schema.episodeCharacters.episodeId, episodeId))
+  const episodeCharIds = episodeCharLinks.map(link => link.characterId)
+  const episodeSceneLinks = await db.select().from(schema.episodeScenes)
+    .where(eq(schema.episodeScenes.episodeId, episodeId))
+  const episodeSceneIds = episodeSceneLinks.map(link => link.sceneId)
+
+  const imageRows = await db.select().from(schema.imageGenerations)
+    .where(inArray(schema.imageGenerations.status, ACTIVE_STATUSES))
+  const images = imageRows
+    .filter(gen => {
+      if (gen.storyboardId && sbIds.includes(gen.storyboardId)) return true
+      if (gen.dramaId !== ep.dramaId) return false
+      if (gen.characterId && episodeCharIds.includes(gen.characterId)) return true
+      if (gen.sceneId && episodeSceneIds.includes(gen.sceneId)) return true
+      return false
+    })
+    .map(gen => ({
+      id: gen.id,
+      storyboardId: gen.storyboardId,
+      characterId: gen.characterId,
+      sceneId: gen.sceneId,
+      frameType: gen.frameType,
+      status: gen.status,
+    }))
+
+  const videoRows = await db.select().from(schema.videoGenerations)
+    .where(inArray(schema.videoGenerations.status, ACTIVE_STATUSES))
+  const videos = videoRows
+    .filter(gen => !gen.deletedAt && !!gen.storyboardId && sbIds.includes(gen.storyboardId))
+    .map(gen => ({ id: gen.id, storyboardId: gen.storyboardId, status: gen.status }))
+
+  const tts = sbs
+    .filter(sb => sb.ttsStatus === 'queued' || sb.ttsStatus === 'processing')
+    .map(sb => ({ storyboardId: sb.id, status: sb.ttsStatus }))
+
+  const composes = sbs
+    .filter(sb => sb.status === 'compose_queued' || sb.status === 'compose_processing')
+    .map(sb => ({ storyboardId: sb.id, status: sb.status }))
+
+  const mergeRows = (await db.select().from(schema.videoMerges)
+    .where(eq(schema.videoMerges.episodeId, episodeId)))
+    .filter(row => !row.deletedAt)
+    .sort((a, b) => a.id - b.id)
+  const latestMerge = mergeRows[mergeRows.length - 1]
+  const merges = latestMerge && ACTIVE_STATUSES.includes(latestMerge.status || '')
+    ? [{ id: latestMerge.id, status: latestMerge.status }]
+    : []
+
+  return success(c, { images, videos, tts, composes, merges })
+})
 // GET /episodes/:id/pipeline-status — 流水线进度
 app.get('/:id/pipeline-status', async (c) => {
   const episodeId = Number(c.req.param('id'))

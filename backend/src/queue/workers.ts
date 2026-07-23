@@ -5,6 +5,7 @@ import { processImageGeneration } from '../services/image-generation.js'
 import { processVideoGeneration } from '../services/video-generation.js'
 import { composeStoryboard } from '../services/ffmpeg-compose.js'
 import { processVideoMerge } from '../services/ffmpeg-merge.js'
+import { processStoryboardTTS } from '../services/tts-task.js'
 import { logTaskError, logTaskSuccess } from '../utils/task-logger.js'
 
 export function startQueueWorkers() {
@@ -34,6 +35,9 @@ export function startQueueWorkers() {
       }
       if (job.name === 'merge-episode') {
         return processVideoMerge(Number(job.data.mergeId))
+      }
+      if (job.name === 'tts') {
+        return processStoryboardTTS(Number(job.data.storyboardId))
       }
       throw new Error(`Unsupported media job: ${job.name}`)
     },

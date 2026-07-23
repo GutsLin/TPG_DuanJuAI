@@ -3,9 +3,11 @@ import { eq } from 'drizzle-orm'
 import { db, schema } from '../db/index.js'
 import { success, created, now, badRequest } from '../utils/response.js'
 import { toSnakeCase } from '../utils/transform.js'
-import { generateTTS } from '../services/tts-generation.js'
+import { enqueueTTSGeneration } from '../queue/jobs.js'
+import { getAbsolutePath } from '../utils/storage.js'
+import fs from 'fs'
 import { logTaskError, logTaskPayload, logTaskProgress, logTaskStart, logTaskSuccess } from '../utils/task-logger.js'
-import { getDramaIdByEpisodeId, getDramaIdByStoryboardId, logOperation, requireResolvedDramaRole } from '../auth/access.js'
+import { getDramaIdByEpisodeId, getDramaIdByStoryboardId, logOperation, requireDramaRole, requireResolvedDramaRole } from '../auth/access.js'
 
 const app = new Hono()
 
@@ -156,7 +158,7 @@ app.put('/:id', async (c) => {
   return success(c)
 })
 
-// POST /storyboards/:id/generate-tts
+// POST /storyboards/:id/generate-tts — 校验后入队，立即返回
 app.post('/:id/generate-tts', async (c) => {
   const id = Number(c.req.param('id'))
   const dramaId = await getDramaIdByStoryboardId(id)
@@ -167,55 +169,103 @@ app.post('/:id/generate-tts', async (c) => {
   if (!sb) return badRequest(c, '镜头不存在')
   const parsedDialogue = parseDialogueForTTS(sb.dialogue)
   if (parsedDialogue.ignorable) return badRequest(c, '该镜头没有可生成的对白或旁白')
+
   logTaskStart('StoryboardAPI', 'generate-tts', {
     storyboardId: id,
     episodeId: sb.episodeId,
     dialoguePreview: (sb.dialogue || '').slice(0, 40),
   })
-  logTaskPayload('StoryboardAPI', 'generate-tts input', {
-    storyboardId: id,
-    episodeId: sb.episodeId,
-    dialogue: sb.dialogue,
-  })
 
-  let voiceId = 'alloy'
-  const speaker = parsedDialogue.speaker
-
-  if (speaker) {
-    if (!/^(旁白|画外音|narrator)$/i.test(speaker)) {
-      const [ep] = await db.select().from(schema.episodes).where(eq(schema.episodes.id, sb.episodeId))
-      if (ep) {
-        const chars = await db.select().from(schema.characters).where(eq(schema.characters.dramaId, ep.dramaId))
-        const found = chars.find((char) => char.name === speaker)
-        if (found?.voiceStyle) voiceId = found.voiceStyle
-      }
-    }
-  }
-
-  const pureDialogue = parsedDialogue.pureText
-  if (!pureDialogue) return badRequest(c, '未提取到可合成的文本')
-
-  const [ep] = await db.select().from(schema.episodes).where(eq(schema.episodes.id, sb.episodeId))
   try {
-    const audioPath = await generateTTS({ text: pureDialogue, voice: voiceId, configId: ep?.audioConfigId || null })
-  await db.update(schema.storyboards)
-    .set({ ttsAudioUrl: audioPath, updatedAt: now() })
-    .where(eq(schema.storyboards.id, id))
-
-
-    logTaskSuccess('StoryboardAPI', 'generate-tts', {
-      storyboardId: id,
-      voiceId,
-      path: audioPath,
-      textLength: pureDialogue.length,
-    })
-    return success(c, { tts_audio_url: audioPath, voice_id: voiceId, text: pureDialogue })
+    await db.update(schema.storyboards)
+      .set({ ttsStatus: 'queued', updatedAt: now() })
+      .where(eq(schema.storyboards.id, id))
+    await enqueueTTSGeneration(id)
+    logTaskSuccess('StoryboardAPI', 'generate-tts', { storyboardId: id, queued: true })
+    return success(c, { queued: true, storyboard_id: id })
   } catch (err: any) {
-    logTaskError('StoryboardAPI', 'generate-tts', { storyboardId: id, voiceId, error: err.message })
+    await db.update(schema.storyboards)
+      .set({ ttsStatus: 'failed', updatedAt: now() })
+      .where(eq(schema.storyboards.id, id))
+    logTaskError('StoryboardAPI', 'generate-tts', { storyboardId: id, error: err.message })
     return badRequest(c, err.message)
   }
 })
 
+// POST /storyboards/batch-generate-tts — 批量入队 TTS
+app.post('/batch-generate-tts', async (c) => {
+  const body = await c.req.json().catch(() => ({} as any))
+  const ids: number[] = (Array.isArray(body.ids) ? body.ids : [])
+    .map((value: any) => Number(value))
+    .filter((n: number) => Number.isFinite(n) && n > 0)
+  if (!ids.length) return badRequest(c, 'ids is required')
+
+  const storyboardRows = (await db.select().from(schema.storyboards))
+    .filter(sb => ids.includes(sb.id) && !sb.deletedAt)
+  const dramaIds = [...new Set(
+    (await Promise.all(storyboardRows.map(sb => getDramaIdByEpisodeId(sb.episodeId))))
+      .filter((value): value is number => typeof value === 'number'),
+  )]
+  for (const dramaId of dramaIds) {
+    const forbidden = await requireDramaRole(c, dramaId, 'editor')
+    if (forbidden) return forbidden
+  }
+
+  const results = await Promise.all(storyboardRows.map(async (sb) => {
+    if (parseDialogueForTTS(sb.dialogue).ignorable) return { id: sb.id, queued: false }
+    await db.update(schema.storyboards)
+      .set({ ttsStatus: 'queued', updatedAt: now() })
+      .where(eq(schema.storyboards.id, sb.id))
+    try {
+      await enqueueTTSGeneration(sb.id)
+      return { id: sb.id, queued: true }
+    } catch (err: any) {
+      await db.update(schema.storyboards)
+        .set({ ttsStatus: 'failed', updatedAt: now() })
+        .where(eq(schema.storyboards.id, sb.id))
+      logTaskError('StoryboardAPI', 'batch-generate-tts-item', { storyboardId: sb.id, error: err.message })
+      return { id: sb.id, queued: false }
+    }
+  }))
+  const queuedIds = results.filter(result => result.queued).map(result => result.id)
+  const skipped = ids.filter(value => !queuedIds.includes(value))
+  logTaskSuccess('StoryboardAPI', 'batch-generate-tts', { requested: ids.length, queued: queuedIds.length, skipped: skipped.length })
+  return success(c, { count: queuedIds.length, ids: queuedIds, skipped })
+})
+
+// POST /storyboards/:id/bind-tts — 绑定已有音频（站内 static 路径或素材库 asset）
+app.post('/:id/bind-tts', async (c) => {
+  const id = Number(c.req.param('id'))
+  const dramaId = await getDramaIdByStoryboardId(id)
+  const forbidden = await requireResolvedDramaRole(c, dramaId, 'editor')
+  if (forbidden) return forbidden
+
+  const [sb] = await db.select().from(schema.storyboards).where(eq(schema.storyboards.id, id))
+  if (!sb) return badRequest(c, '镜头不存在')
+
+  const body = await c.req.json().catch(() => ({} as any))
+  let ttsPath = ''
+  if (body.asset_id) {
+    const [asset] = await db.select().from(schema.assets).where(eq(schema.assets.id, Number(body.asset_id)))
+    if (!asset || asset.deletedAt) return badRequest(c, '素材不存在')
+    ttsPath = String(asset.localPath || asset.url || '').trim()
+  } else if (body.url) {
+    ttsPath = String(body.url).trim()
+  } else {
+    return badRequest(c, 'url 或 asset_id 必填其一')
+  }
+
+  if (ttsPath.startsWith('/')) ttsPath = ttsPath.slice(1)
+  if (!ttsPath.startsWith('static/')) return badRequest(c, 'url 必须是 static/ 开头的站内音频路径')
+  if (!fs.existsSync(getAbsolutePath(ttsPath))) return badRequest(c, '音频文件不存在')
+
+  await db.update(schema.storyboards)
+    .set({ ttsAudioUrl: ttsPath, ttsStatus: 'completed', updatedAt: now() })
+    .where(eq(schema.storyboards.id, id))
+  await logOperation(c, { action: 'storyboard.bind-tts', dramaId, resourceType: 'storyboard', resourceId: id, detail: { tts_audio_url: ttsPath, asset_id: body.asset_id ?? null } })
+  logTaskSuccess('StoryboardAPI', 'bind-tts', { storyboardId: id, path: ttsPath })
+  return success(c, { tts_audio_url: ttsPath })
+})
 // DELETE /storyboards/:id
 app.delete('/:id', async (c) => {
   const id = Number(c.req.param('id'))

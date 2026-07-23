@@ -11,6 +11,7 @@ import { eq } from 'drizzle-orm'
 import { now } from '../utils/response.js'
 import { logTaskError, logTaskStart, logTaskSuccess } from '../utils/task-logger.js'
 import { enqueueEpisodeMerge } from '../queue/jobs.js'
+import { registerAsset } from './asset-register.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const STORAGE_ROOT = process.env.STORAGE_PATH || path.resolve(__dirname, '../../../data/static')
@@ -146,6 +147,22 @@ async function doMerge(mergeId: number, episodeId: number, videos: string[]) {
   await db.update(schema.episodes)
     .set({ videoUrl: mergedRelative, updatedAt: now() })
     .where(eq(schema.episodes.id, episodeId))
+
+  // 注册素材库（容错，不阻断主流程）
+  const [ep] = await db.select().from(schema.episodes).where(eq(schema.episodes.id, episodeId))
+  await registerAsset({
+    type: 'video',
+    category: 'merged_video',
+    source: 'ai',
+    dramaId: ep?.dramaId ?? null,
+    episodeId,
+    name: `${ep?.title || `Episode ${episodeId}`} 整集拼接`,
+    url: `/${mergedRelative}`,
+    localPath: mergedRelative,
+    duration: duration || null,
+    mimeType: 'video/mp4',
+    format: 'mp4',
+  })
 
   logTaskSuccess('MergeTask', 'episode-merge', { mergeId, episodeId, output: mergedRelative, duration, clips: videos.length })
 }

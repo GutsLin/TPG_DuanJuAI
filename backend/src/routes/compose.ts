@@ -1,33 +1,40 @@
 import { Hono } from 'hono'
 import { eq } from 'drizzle-orm'
 import { db, schema } from '../db/index.js'
-import { success, badRequest } from '../utils/response.js'
-import { composeStoryboard } from '../services/ffmpeg-compose.js'
-import { logTaskError, logTaskStart, logTaskSuccess } from '../utils/task-logger.js'
+import { success, badRequest, now } from '../utils/response.js'
+import { logTaskError, logTaskStart } from '../utils/task-logger.js'
 import { toSnakeCase } from '../utils/transform.js'
 import { enqueueStoryboardCompose } from '../queue/jobs.js'
 import { getDramaIdByEpisodeId, getDramaIdByStoryboardId, requireResolvedDramaRole } from '../auth/access.js'
 
 const app = new Hono()
 
-// POST /storyboards/:id/compose — 合成单个镜头
+// POST /storyboards/:id/compose — 合成单个镜头（入队，立即返回）
 app.post('/storyboards/:id/compose', async (c) => {
   const id = Number(c.req.param('id'))
   const dramaId = await getDramaIdByStoryboardId(id)
   const forbidden = await requireResolvedDramaRole(c, dramaId, 'editor')
   if (forbidden) return forbidden
 
+  const [sb] = await db.select().from(schema.storyboards).where(eq(schema.storyboards.id, id))
+  if (!sb) return badRequest(c, `Storyboard ${id} not found`)
+  if (!sb.videoUrl) return badRequest(c, `Storyboard ${id} has no video`)
+
   try {
     logTaskStart('ComposeAPI', 'single-compose', { storyboardId: id })
-    const composedUrl = await composeStoryboard(id)
-    logTaskSuccess('ComposeAPI', 'single-compose', { storyboardId: id, output: composedUrl })
-    return success(c, { id, composed_video_url: composedUrl })
+    await db.update(schema.storyboards)
+      .set({ status: 'compose_queued', updatedAt: now() })
+      .where(eq(schema.storyboards.id, id))
+    await enqueueStoryboardCompose(id)
+    return success(c, { queued: true, storyboard_id: id })
   } catch (err: any) {
+    await db.update(schema.storyboards)
+      .set({ status: 'compose_failed', updatedAt: now() })
+      .where(eq(schema.storyboards.id, id))
     logTaskError('ComposeAPI', 'single-compose', { storyboardId: id, error: err.message })
     return badRequest(c, err.message)
   }
 })
-
 // POST /episodes/:id/compose-all — 批量合成全部镜头
 app.post('/episodes/:id/compose-all', async (c) => {
   const episodeId = Number(c.req.param('id'))

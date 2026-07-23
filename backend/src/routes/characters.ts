@@ -23,6 +23,9 @@ app.put('/:id', async (c) => {
     if (snakeKey in body) updates[key] = body[snakeKey]
     else if (key in body) updates[key] = body[key]
   }
+  if (typeof updates.imageUrl === 'string' && updates.imageUrl.startsWith('/')) {
+    updates.imageUrl = updates.imageUrl.replace(/^\/+/, '')
+  }
   if ('voice_style' in body || 'voiceStyle' in body) {
     updates.voiceSampleUrl = null
   }

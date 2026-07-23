@@ -11,6 +11,7 @@ import { db, schema } from '../db/index.js'
 import { eq } from 'drizzle-orm'
 import { now } from '../utils/response.js'
 import { generateTTS } from './tts-generation.js'
+import { getStoryboardAssetContext, registerAsset } from './asset-register.js'
 import { logTaskError, logTaskProgress, logTaskStart, logTaskSuccess } from '../utils/task-logger.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -96,7 +97,7 @@ export async function composeStoryboard(storyboardId: number): Promise<string> {
         const pureDialogue = parsedDialogue.pureText
         if (pureDialogue) {
           logTaskProgress('ComposeTask', 'generate-inline-tts', { storyboardId, voiceId, textPreview: pureDialogue.slice(0, 40) })
-          const ttsPath = await generateTTS({ text: pureDialogue, voice: voiceId, configId: ep?.audioConfigId ?? undefined })
+          const ttsPath = await generateTTS({ text: pureDialogue, voice: voiceId, configId: ep?.audioConfigId ?? undefined, storyboardId, episodeId: sb.episodeId, dramaId: ep?.dramaId ?? null })
           audioPath = toAbsPath(ttsPath)
           await db.update(schema.storyboards).set({ ttsAudioUrl: ttsPath, updatedAt: now() })
             .where(eq(schema.storyboards.id, storyboardId))
@@ -177,6 +178,24 @@ export async function composeStoryboard(storyboardId: number): Promise<string> {
       storyboardId,
       storyboardNumber: sb.storyboardNumber,
       output: composedRelative,
+    })
+
+    // 注册素材库（容错，不阻断主流程）
+    const ctx = await getStoryboardAssetContext(storyboardId)
+    await registerAsset({
+      type: 'video',
+      category: 'composed_video',
+      source: 'ai',
+      dramaId: ctx?.dramaId ?? null,
+      episodeId: sb.episodeId,
+      storyboardId,
+      storyboardNum: sb.storyboardNumber,
+      name: `第${sb.storyboardNumber}镜 合成视频`,
+      url: `/${composedRelative}`,
+      localPath: composedRelative,
+      duration: sb.duration ?? null,
+      mimeType: 'video/mp4',
+      format: 'mp4',
     })
     return composedRelative
   } catch (err) {

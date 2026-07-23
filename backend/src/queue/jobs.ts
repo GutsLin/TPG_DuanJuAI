@@ -16,6 +16,14 @@ export async function enqueueStoryboardCompose(storyboardId: number) {
   })
 }
 
+export async function enqueueTTSGeneration(storyboardId: number) {
+  return getMediaQueue().add('tts', { storyboardId }, {
+    jobId: `tts-${storyboardId}`,
+    removeOnComplete: true,
+    removeOnFail: true,
+  })
+}
+
 export async function enqueueEpisodeMerge(mergeId: number) {
   return getMediaQueue().add('merge-episode', { mergeId }, {
     jobId: `merge-${mergeId}`,
