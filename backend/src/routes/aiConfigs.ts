@@ -69,6 +69,14 @@ function buildProbe(serviceType: string, provider: string, baseUrl: string, mode
   }
 
   if (p === 'openai' || p === 'openrouter' || p === 'chatfire') {
+    if (p === 'openai' && serviceType === 'video') {
+      return {
+        method: 'POST',
+        url: joinProviderUrl(baseUrl, '/v1', '/video/generations'),
+        headers: bearerHeaders(apiKey, true),
+        body: {},
+      }
+    }
     return {
       method: 'GET',
       url: joinProviderUrl(baseUrl, '/v1', '/models'),

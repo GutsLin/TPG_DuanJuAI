@@ -577,9 +577,12 @@ const endpointPrefixes = {
 
 const endpointHint = computed(() => {
   const provider = cfgForm.provider
-  const base = cfgForm.base_url || 'https://...'
+  const base = (cfgForm.base_url || 'https://...').replace(/\/+$/, '')
   const prefix = endpointPrefixes[provider] || ''
   if (!provider) return '选择服务商后显示推荐端点前缀'
+  if (cfgForm.service_type === 'video' && provider === 'openai') {
+    return `${base}/v1/video/generations`
+  }
   return `${base}${prefix}`
 })
 

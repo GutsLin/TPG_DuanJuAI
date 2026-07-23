@@ -6,6 +6,7 @@ import { MiniMaxImageAdapter } from './minimax-image'
 import { MiniMaxVideoAdapter } from './minimax-video'
 import { MiniMaxTTSAdapter } from './minimax-tts'
 import { OpenAIImageAdapter } from './openai-image'
+import { OpenAIVideoAdapter } from './openai-video'
 import { GeminiImageAdapter } from './gemini-image'
 import { VolcEngineImageAdapter } from './volcengine-image'
 import { VolcEngineVideoAdapter } from './volcengine-video'
@@ -27,6 +28,7 @@ export const imageAdapters: Record<string, ImageProviderAdapter> = {
 
 // 视频 Adapter 注册表
 export const videoAdapters: Record<string, VideoProviderAdapter> = {
+  openai: new OpenAIVideoAdapter(),
   minimax: new MiniMaxVideoAdapter(),
   volcengine: new VolcEngineVideoAdapter(),
   vidu: new ViduVideoAdapter(),
