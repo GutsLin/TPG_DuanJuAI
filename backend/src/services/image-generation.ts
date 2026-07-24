@@ -9,6 +9,7 @@ import { enqueueImageGeneration } from '../queue/jobs.js'
 import { getStoryboardAssetContext, registerAsset } from './asset-register.js'
 import { logTaskError, logTaskPayload, logTaskProgress, logTaskStart, logTaskSuccess, logTaskWarn, redactUrl } from '../utils/task-logger.js'
 import { recordModelCall } from './model-call-log.js'
+import { validateImageSize } from '../utils/image-size.js'
 
 interface GenerateImageParams {
   storyboardId?: number
@@ -29,6 +30,7 @@ export async function generateImage(params: GenerateImageParams): Promise<number
     ? await getConfigById(params.configId)
     : await getActiveConfig('image')
   if (!config) throw new Error('No active image AI config')
+  const size = validateImageSize(params.size)
 
   const [inserted] = await db.insert(schema.imageGenerations).values({
     storyboardId: params.storyboardId,
@@ -39,7 +41,7 @@ export async function generateImage(params: GenerateImageParams): Promise<number
     prompt: params.prompt,
     model: params.model || config.model,
     provider: config.provider,
-    size: params.size || '1920x1080',
+    size,
     frameType: params.frameType,
     referenceImages: params.referenceImages ? JSON.stringify(params.referenceImages) : null,
     status: 'queued',
@@ -86,6 +88,7 @@ export async function processImageGeneration(id: number) {
       ? await getConfigById(record.configId)
       : await getActiveConfig('image')
     if (!config) throw new Error('Image AI config not found')
+    const size = validateImageSize(record.size)
     const adapter = getImageAdapter(config.provider)
     await db.update(schema.imageGenerations)
       .set({ status: 'processing', errorMsg: null, updatedAt: now() })
@@ -105,7 +108,7 @@ export async function processImageGeneration(id: number) {
       id: record.id,
       model: record.model,
       prompt: record.prompt,
-      size: record.size,
+      size,
       frameType: record.frameType,
       referenceImages: resolvedReferenceImages ? JSON.stringify(resolvedReferenceImages) : null,
     })

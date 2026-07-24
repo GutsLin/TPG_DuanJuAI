@@ -4,6 +4,7 @@
  */
 import type { ImageProviderAdapter, ImageGenerationRecord } from './types'
 import { joinProviderUrl } from './url'
+import { DEFAULT_IMAGE_SIZE } from '../../utils/image-size.js'
 
 export class AliImageAdapter implements ImageProviderAdapter {
   readonly provider = 'ali'
@@ -25,8 +26,8 @@ export class AliImageAdapter implements ImageProviderAdapter {
       'X-DashScope-Async': 'enable',
     }
 
-    // 解析 size 参数（如 "1920x1080" -> "1696*960"）
-    const size = this.normalizeSize(record.size || '1280*1280')
+    // 解析 size 参数（如 "1920x1080" -> "1920*1080"）
+    const size = this.normalizeSize(record.size || DEFAULT_IMAGE_SIZE)
 
     const body: any = {
       model: record.model || 'wan2.6-t2i',
@@ -124,18 +125,9 @@ export class AliImageAdapter implements ImageProviderAdapter {
   }
 
   /**
-   * 将 "1920x1080" 转换为阿里需要的 "1696*960" 格式
+   * 将 "1920x1080" 转换为阿里需要的 "1920*1080" 格式
    */
   private normalizeSize(size: string): string {
-    // 默认比例 16:9
-    const [w, h] = size.split('x').map(Number)
-    if (w && h) {
-      // 映射到 Ali 支持的比例
-      const aspect = w / h
-      if (aspect > 1.7) return '1696*960' // 16:9
-      if (aspect < 0.8) return '960*1696' // 9:16
-      return '1280*1280' // 1:1
-    }
-    return '1280*1280'
+    return size.replace('x', '*')
   }
 }

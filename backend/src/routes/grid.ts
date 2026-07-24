@@ -524,11 +524,10 @@ app.post('/generate', async (c) => {
   const prompt = custom_prompt || await buildGridPrompt(mode, storyboards, rows, cols, dramaStyle, referenceAssets)
   const referenceImages = referenceAssets.map((asset) => asset.path)
 
-  // Size: first_last mode uses Nx2 layout
-  const cellW = 960, cellH = 540
+  // Generate grids at the 2K landscape template so split cells stay clearer.
   const actualCols = cols
   const actualRows = rows
-  const size = `${cellW * actualCols}x${cellH * actualRows}`
+  const size = '2560x1440'
 
   try {
     const genId = await generateImage({

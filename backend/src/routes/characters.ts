@@ -94,7 +94,7 @@ app.post('/:id/generate-image', async (c) => {
   const prompt = `${char.name}, ${char.appearance || char.description || '人物立绘'}, 高质量, 正面, 白色背景`
   try {
     logTaskStart('CharacterImage', 'generate', { characterId: id, episodeId: ep.id, dramaId: char.dramaId })
-    const genId = await generateImage({ characterId: id, dramaId: char.dramaId, prompt, configId: ep.imageConfigId ?? undefined })
+    const genId = await generateImage({ characterId: id, dramaId: char.dramaId, prompt, size: body.size, configId: ep.imageConfigId ?? undefined })
     logTaskSuccess('CharacterImage', 'generate', { characterId: id, generationId: genId })
     return success(c, { image_generation_id: genId })
   } catch (err: any) {
@@ -118,7 +118,7 @@ app.post('/batch-generate-images', async (c) => {
     .filter(char => ids.includes(char.id) && !char.deletedAt)
   const settled = await Promise.allSettled(characters.map(async char => {
     const prompt = `${char.name}, ${char.appearance || char.description || '人物立绘'}, 高质量, 正面, 白色背景`
-    return generateImage({ characterId: char.id, dramaId: char.dramaId, prompt, configId: ep.imageConfigId ?? undefined })
+    return generateImage({ characterId: char.id, dramaId: char.dramaId, prompt, size: body.size, configId: ep.imageConfigId ?? undefined })
   }))
   const results = settled
     .filter((result): result is PromiseFulfilledResult<number> => result.status === 'fulfilled')

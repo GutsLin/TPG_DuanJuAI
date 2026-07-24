@@ -12,13 +12,14 @@ import type {
   ImagePollResponse,
 } from './types'
 import { joinProviderUrl } from './url'
+import { DEFAULT_IMAGE_SIZE } from '../../utils/image-size.js'
 
 export class OpenAIImageAdapter implements ImageProviderAdapter {
   provider = 'openai'
 
   buildGenerateRequest(config: AIConfig, record: ImageGenerationRecord): ProviderRequest {
-    // OpenAI 使用 size 字段，格式为 "1024x1024"
-    const size = record.size || '1024x1024'
+    // OpenAI 使用 size 字段，格式为 "1920x1080"
+    const size = record.size || DEFAULT_IMAGE_SIZE
 
     const body: any = {
       model: record.model || 'dall-e-3',

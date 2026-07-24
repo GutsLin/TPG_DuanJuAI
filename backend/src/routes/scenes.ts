@@ -49,7 +49,7 @@ app.post('/batch-generate-images', async (c) => {
     const prompt = scene.prompt || `${scene.location}, ${scene.time || ''}, 高质量场景, 电影感`
     try {
       await db.update(schema.scenes).set({ status: 'processing', updatedAt: now() }).where(eq(schema.scenes.id, scene.id))
-      return await generateImage({ sceneId: scene.id, dramaId: scene.dramaId, prompt, configId: ep.imageConfigId ?? undefined })
+      return await generateImage({ sceneId: scene.id, dramaId: scene.dramaId, prompt, size: body.size, configId: ep.imageConfigId ?? undefined })
     } catch (err) {
       await db.update(schema.scenes).set({ status: 'failed', updatedAt: now() }).where(eq(schema.scenes.id, scene.id))
       throw err
@@ -101,7 +101,7 @@ app.post('/:id/generate-image', async (c) => {
   try {
     logTaskStart('SceneImage', 'generate', { sceneId: id, episodeId: ep.id, dramaId: scene.dramaId, location: scene.location })
     await db.update(schema.scenes).set({ status: 'processing', updatedAt: now() }).where(eq(schema.scenes.id, id))
-    const genId = await generateImage({ sceneId: id, dramaId: scene.dramaId, prompt, configId: ep.imageConfigId ?? undefined })
+    const genId = await generateImage({ sceneId: id, dramaId: scene.dramaId, prompt, size: body.size, configId: ep.imageConfigId ?? undefined })
     logTaskSuccess('SceneImage', 'generate', { sceneId: id, generationId: genId })
     return success(c, { image_generation_id: genId })
   } catch (err: any) {

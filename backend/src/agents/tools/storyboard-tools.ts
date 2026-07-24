@@ -326,11 +326,11 @@ export function createStoryboardTools(episodeId: number, dramaId: number) {
       if (mode === 'multi_ref') {
         const sb = shots[0]
         const payload = {
-          grid_prompt: `电影级高质量参考图，${sb.description}，专业摄影，电影质感，4K分辨率，${rows}x${cols} 宫格统一风格参考图`,
+          grid_prompt: `电影级高质量参考图，${sb.description}，专业摄影，电影质感，2K分辨率，${rows}x${cols} 宫格统一风格参考图`,
           cell_prompts: shots.map(s => ({
             shot_number: s.shot_number,
             frame_type: 'reference',
-            prompt: `电影级高质量参考图，${s.description}，专业摄影，电影质感，4K分辨率，统一风格`,
+            prompt: `电影级高质量参考图，${s.description}，专业摄影，电影质感，2K分辨率，统一风格`,
           })),
         }
         logTaskSuccess('StoryboardTool', 'grid-prompt-complete', { episodeId, cells: payload.cell_prompts.length, mode })

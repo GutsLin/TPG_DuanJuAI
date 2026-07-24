@@ -16,6 +16,7 @@ import type {
 } from './types'
 import { joinProviderUrl } from './url'
 import { parseDataUrl } from '../../utils/storage.js'
+import { DEFAULT_IMAGE_SIZE } from '../../utils/image-size.js'
 
 export class GeminiImageAdapter implements ImageProviderAdapter {
   provider = 'gemini'
@@ -148,7 +149,7 @@ export class GeminiImageAdapter implements ImageProviderAdapter {
   }
 
   private parseAspectRatio(size?: string | null): string {
-    if (!size) return '16:9'
+    if (!size) size = DEFAULT_IMAGE_SIZE
     const [w, h] = size.split('x').map(Number)
     if (!w || !h) return '16:9'
     const gcd = this.gcd(w, h)
@@ -156,13 +157,8 @@ export class GeminiImageAdapter implements ImageProviderAdapter {
   }
 
   private parseImageSize(size?: string | null): string {
-    if (!size) return '1K'
-    const [w] = size.split('x').map(Number)
-    if (!w) return '1K'
-    if (w >= 2048) return '4K'
-    if (w >= 1024) return '2K'
-    if (w >= 512) return '1K'
-    return '512'
+    if (!size) size = DEFAULT_IMAGE_SIZE
+    return size.startsWith('2560x') || size.startsWith('1440x') ? '2K' : '1K'
   }
 
   private gcd(a: number, b: number): number {

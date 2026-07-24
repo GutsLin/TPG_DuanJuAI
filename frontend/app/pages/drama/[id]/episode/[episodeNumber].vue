@@ -792,6 +792,7 @@
             <div class="prod-section-bar">
               <span class="dim" style="font-size:12px">{{ visualChars.length }} 个需生成形象角色</span>
               <span class="tag">{{ lockedImageConfigLabel }}</span>
+              <BaseSelect v-model="imageSizeTemplate" :options="imageSizeTemplateOptions" searchable style="width:130px" />
               <span v-if="chars.length > visualChars.length" class="tag">旁白仅保留声音</span>
               <div class="ml-auto flex gap-1">
                 <button class="btn btn-sm" @click="batchCharImages">
@@ -836,6 +837,7 @@
             <div class="prod-section-bar">
               <span class="dim" style="font-size:12px">{{ scenes.length }} 个场景</span>
               <span class="tag">{{ lockedImageConfigLabel }}</span>
+              <BaseSelect v-model="imageSizeTemplate" :options="imageSizeTemplateOptions" searchable style="width:130px" />
               <div class="ml-auto flex gap-1">
                 <button class="btn btn-sm" @click="batchSceneImages">
                   <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
@@ -1675,6 +1677,13 @@ const mergeUrl = computed(() => mergeData.value?.merged_url || mergeData.value?.
 
 const scriptStep = ref(0)
 const prodTab = ref('chars')
+const imageSizeTemplateOptions = [
+  { label: '1K 16:9', value: '1920x1080' },
+  { label: '1K 9:16', value: '1080x1920' },
+  { label: '2K 16:9', value: '2560x1440' },
+  { label: '2K 9:16', value: '1440x2560' },
+]
+const imageSizeTemplate = ref('1920x1080')
 // Current video providers reject first/last-frame inputs. Keep the old workflow behind one switch for later restoration.
 const shotImageWorkflowEnabled = false
 const prodTabIdx = computed({
@@ -2749,6 +2758,9 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
 
+const VIDEO_POLL_INTERVAL_MS = 4000
+const VIDEO_POLL_MAX_ATTEMPTS = 900
+
 function watchAsyncResult(check, attempts = 24, delay = 2500) {
   void (async () => {
     for (let i = 0; i < attempts; i++) {
@@ -2813,7 +2825,7 @@ function watchTtsIds(ids) {
 async function genCharImg(id) {
   try {
     if (!isPendingCharImage(id)) pendingCharImageIds.value.push(id)
-    await characterAPI.generateImage(id, epId.value)
+    await characterAPI.generateImage(id, epId.value, imageSizeTemplate.value)
     toast.success('角色图片生成中')
     await refresh()
     watchCharImage(id)
@@ -2826,7 +2838,7 @@ function batchCharImages() {
   const ids = visualChars.value.filter(c => !(c.image_url || c.imageUrl)).map(c => c.id)
   if (!ids.length) { toast.info('所有角色图片已生成'); return }
   pendingCharImageIds.value = [...new Set([...pendingCharImageIds.value, ...ids])]
-  characterAPI.batchImages(ids, epId.value).then(async () => {
+  characterAPI.batchImages(ids, epId.value, imageSizeTemplate.value).then(async () => {
     toast.success('角色图片批量生成中')
     await refresh()
     watchAsyncResult(() => ids.every(id => {
@@ -2843,7 +2855,7 @@ function batchCharImages() {
 async function genSceneImg(id) {
   try {
     if (!isPendingSceneImage(id)) pendingSceneImageIds.value.push(id)
-    await sceneAPI.generateImage(id, epId.value)
+    await sceneAPI.generateImage(id, epId.value, imageSizeTemplate.value)
     toast.success('场景图片生成中')
     await refresh()
     watchSceneImage(id)
@@ -2857,7 +2869,7 @@ async function batchSceneImages() {
   if (!ids.length) { toast.info('所有场景图片已生成'); return }
   pendingSceneImageIds.value = [...new Set([...pendingSceneImageIds.value, ...ids])]
   try {
-    await sceneAPI.batchImages(ids, epId.value)
+    await sceneAPI.batchImages(ids, epId.value, imageSizeTemplate.value)
     toast.success('场景图片批量生成中')
     await refresh()
     watchAsyncResult(() => ids.every(id => {
@@ -3022,6 +3034,7 @@ async function genShotFrame(sb, frameType) {
       storyboard_id: sb.id,
       drama_id: dramaId,
       prompt,
+      size: imageSizeTemplate.value,
       frame_type: frameType,
       reference_images: referenceImages.length ? referenceImages : undefined,
     }
@@ -3065,12 +3078,12 @@ async function pollVideoGeneration(generationId, storyboardId) {
       const done = !!(target?.video_url || target?.videoUrl)
       if (done) pendingVideoIds.value = pendingVideoIds.value.filter(item => item !== storyboardId)
       return done
-    }, 60, 4000)
+    }, VIDEO_POLL_MAX_ATTEMPTS, VIDEO_POLL_INTERVAL_MS)
     return
   }
-  for (let i = 0; i < 120; i++) {
+  for (let i = 0; i < VIDEO_POLL_MAX_ATTEMPTS; i++) {
     if (disposed) return
-    await sleep(4000)
+    await sleep(VIDEO_POLL_INTERVAL_MS)
     try {
       const res = await videoAPI.get(generationId)
       await refresh()
@@ -3091,12 +3104,7 @@ async function pollVideoGeneration(generationId, storyboardId) {
       }
     } catch {}
   }
-  pendingVideoIds.value = pendingVideoIds.value.filter(item => item !== storyboardId)
-  failedVideoMessages.value = {
-    ...failedVideoMessages.value,
-    [storyboardId]: '视频生成超时',
-  }
-  toast.error('视频生成超时')
+  toast.info('视频仍在后台生成，可稍后刷新查看')
 }
 async function doCompose(sb) {
   try {
@@ -3128,7 +3136,7 @@ function batchVideos() {
       const done = !!(target?.video_url || target?.videoUrl)
       if (done) pendingVideoIds.value = pendingVideoIds.value.filter(item => item !== id)
       return done
-    }), 80, 4000)
+    }), VIDEO_POLL_MAX_ATTEMPTS, VIDEO_POLL_INTERVAL_MS)
   }
 }
 async function batchCompose() {

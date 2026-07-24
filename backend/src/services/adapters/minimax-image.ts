@@ -11,6 +11,7 @@ import type {
   ImagePollResponse,
 } from './types'
 import { joinProviderUrl } from './url'
+import { DEFAULT_IMAGE_SIZE } from '../../utils/image-size.js'
 
 export class MiniMaxImageAdapter implements ImageProviderAdapter {
   provider = 'minimax'
@@ -19,7 +20,7 @@ export class MiniMaxImageAdapter implements ImageProviderAdapter {
     const body: any = {
       model: record.model || config.model,
       prompt: record.prompt,
-      size: record.size || '1920x1080',
+      size: record.size || DEFAULT_IMAGE_SIZE,
       n: 1,
     }
 
