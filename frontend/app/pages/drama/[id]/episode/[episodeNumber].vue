@@ -488,7 +488,7 @@
                     <span class="tag" style="font-size:10px">{{ sb.shot_type || sb.shotType || '—' }}</span>
                     <span v-if="getStoryboardCharacterIds(sb).length" class="tag" style="font-size:10px">{{ getStoryboardCharacterIds(sb).length }} 角色</span>
                     <div class="shot-status">
-                      <div v-if="sb.imageUrl || sb.composedImage || sb.firstFrameImage" class="shot-dot has-img" title="已生成图片"></div>
+                      <div v-if="shotImageWorkflowEnabled && (sb.imageUrl || sb.composedImage || sb.firstFrameImage)" class="shot-dot has-img" title="已生成图片"></div>
                       <div v-if="sb.videoUrl || sb.composedVideoUrl" class="shot-dot has-video" title="已生成视频"></div>
                       <div v-if="sb.dialogue" class="shot-dot has-dialogue" title="有对白"></div>
                     </div>
@@ -519,7 +519,7 @@
                   </button>
               </div>
               <div class="detail-body">
-                <div class="detail-hero">
+                <div class="detail-hero" :class="{ 'without-shot-images': !shotImageWorkflowEnabled }">
                   <div class="detail-hero-copy">
                     <div class="detail-hero-label">镜头概览</div>
                     <div class="detail-hero-text">{{ selectedSb.description || selectedSb.title || '当前镜头还没有画面描述，建议先补充核心动作和构图。' }}</div>
@@ -527,12 +527,14 @@
                       <span class="tag">{{ getSceneName(selectedSb) }}</span>
                       <span class="tag">{{ selectedSb.angle || '未设角度' }}</span>
                       <span class="tag">{{ selectedSb.movement || '未设运镜' }}</span>
-                      <span class="tag" :class="getFirstFrame(selectedSb) ? 'tag-success' : ''">首帧 {{ getFirstFrame(selectedSb) ? '已生成' : '待生成' }}</span>
-                      <span class="tag" :class="getLastFrame(selectedSb) ? 'tag-success' : ''">尾帧 {{ getLastFrame(selectedSb) ? '已生成' : '待生成' }}</span>
+                      <template v-if="shotImageWorkflowEnabled">
+                        <span class="tag" :class="getFirstFrame(selectedSb) ? 'tag-success' : ''">首帧 {{ getFirstFrame(selectedSb) ? '已生成' : '待生成' }}</span>
+                        <span class="tag" :class="getLastFrame(selectedSb) ? 'tag-success' : ''">尾帧 {{ getLastFrame(selectedSb) ? '已生成' : '待生成' }}</span>
+                      </template>
                       <span class="tag" :class="hasVid(selectedSb) ? 'tag-success' : ''">视频 {{ hasVid(selectedSb) ? '已生成' : '待生成' }}</span>
                     </div>
                   </div>
-                  <div class="detail-preview-grid">
+                  <div v-if="shotImageWorkflowEnabled" class="detail-preview-grid">
                     <div class="detail-preview-card">
                       <div class="detail-preview-title">首帧</div>
                       <div class="detail-preview-media">
@@ -691,12 +693,12 @@
                 <div class="detail-section">
                   <div class="detail-section-head">
                     <span class="detail-section-title">生成提示</span>
-                    <span class="detail-section-copy">分别服务图片、视频、配乐和音效生成</span>
+                    <span class="detail-section-copy">分别服务视频、配乐和音效生成</span>
                   </div>
                   <label class="field">
-                    <span class="field-label">静态画面提示词</span>
+                    <span class="field-label">画面描述提示词</span>
                     <textarea :value="selectedSb.image_prompt || selectedSb.imagePrompt || ''" class="textarea" rows="4"
-                      @blur="updateField(selectedSb, 'image_prompt', $event.target.value)" placeholder="用于首帧、尾帧和镜头图片的单帧画面提示词" />
+                      @blur="updateField(selectedSb, 'image_prompt', $event.target.value)" placeholder="用于描述镜头构图、人物状态和场景氛围" />
                   </label>
                   <label class="field">
                     <span class="field-label">视频提示词</span>
@@ -925,7 +927,7 @@
           </div>
 
           <!-- Sub: Shots -->
-          <div v-else-if="prodTab === 'shots'" class="prod-content">
+          <div v-else-if="shotImageWorkflowEnabled && prodTab === 'shots'" class="prod-content">
             <div class="prod-section-bar">
               <span class="dim" style="font-size:12px">{{ sbs.length }} 个镜头</span>
               <span class="tag mono">{{ shotImgCount }}/{{ sbs.length }} 已有帧图</span>
@@ -1271,12 +1273,6 @@
                     preload="metadata"
                     playsinline
                   />
-                  <img
-                    v-else-if="hasImg(sb)"
-                    :src="mediaUrl(getStoryboardCover(sb))"
-                    class="previewable-image"
-                    @click.stop="openImageViewer(mediaUrl(getStoryboardCover(sb)), `镜头 #${String(i + 1).padStart(2, '0')} 参考图`)"
-                  />
                   <div v-else class="prod-cover-empty">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
                   </div>
@@ -1287,7 +1283,6 @@
                   <div class="prod-desc truncate">{{ sb.description || sb.title || '—' }}</div>
                   <div class="prod-meta-line">{{ sb.shot_type || sb.shotType || '未设景别' }} · {{ sb.duration || 10 }}s</div>
                   <div class="prod-dots">
-                    <span :class="['dot', hasImg(sb) && 'ok']" /><span style="font-size:10px">图</span>
                     <span :class="['dot', hasVid(sb) && 'ok', isPendingVideo(sb.id) && 'pending']" /><span style="font-size:10px">{{ isPendingVideo(sb.id) ? '视频生成中' : '视频' }}</span>
                   </div>
                   <div v-if="videoFailMessage(sb.id)" class="prod-error">{{ videoFailMessage(sb.id) }}</div>
@@ -1332,12 +1327,6 @@
                     controls
                     preload="metadata"
                     playsinline
-                  />
-                  <img
-                    v-else-if="hasImg(sb)"
-                    :src="mediaUrl(getStoryboardCover(sb))"
-                    class="previewable-image"
-                    @click.stop="openImageViewer(mediaUrl(getStoryboardCover(sb)), `镜头 #${String(i + 1).padStart(2, '0')} 参考图`)"
                   />
                   <div v-else class="prod-cover-empty">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
@@ -1686,6 +1675,8 @@ const mergeUrl = computed(() => mergeData.value?.merged_url || mergeData.value?.
 
 const scriptStep = ref(0)
 const prodTab = ref('chars')
+// Current video providers reject first/last-frame inputs. Keep the old workflow behind one switch for later restoration.
+const shotImageWorkflowEnabled = false
 const prodTabIdx = computed({
   get: () => {
     const idx = prodTabDefs.value.findIndex(t => t.id === prodTab.value)
@@ -2326,7 +2317,9 @@ const prodTabDefs = computed(() => [
   { id: 'chars', label: '角色形象', icon: Users, badge: visualCharTotal.value ? `${charImgCount.value}/${visualCharTotal.value}` : '' },
   { id: 'scenes', label: '场景图片', icon: MapPin, badge: sceneImgCount.value ? `${sceneImgCount.value}/${scenes.value.length}` : '' },
   { id: 'dubbing', label: '配音生成', icon: Mic2, badge: '' },
-  { id: 'shots', label: '镜头图片', icon: ImageIcon, badge: shotImgCount.value ? `${shotImgCount.value}/${sbs.value.length}` : '' },
+  ...(shotImageWorkflowEnabled
+    ? [{ id: 'shots', label: '镜头图片', icon: ImageIcon, badge: shotImgCount.value ? `${shotImgCount.value}/${sbs.value.length}` : '' }]
+    : []),
   { id: 'videos', label: '视频生成', icon: Video, badge: shotVidCount.value ? `${shotVidCount.value}/${sbs.value.length}` : '' },
   { id: 'compose', label: '视频合成', icon: Layers, badge: composedCount.value ? `${composedCount.value}/${sbs.value.length}` : '' },
 ])
@@ -2357,7 +2350,9 @@ const sidebarSections = computed(() => ([
       { key: 'prod:chars', label: '角色形象', desc: '', icon: Users, done: prodStepDone('chars') },
       { key: 'prod:scenes', label: '场景图片', desc: '', icon: MapPin, done: prodStepDone('scenes') },
       { key: 'prod:dubbing', label: '配音生成', desc: '', icon: Mic2, done: prodStepDone('dubbing') },
-      { key: 'prod:shots', label: '镜头图片', desc: '', icon: ImageIcon, done: prodStepDone('shots') },
+      ...(shotImageWorkflowEnabled
+        ? [{ key: 'prod:shots', label: '镜头图片', desc: '', icon: ImageIcon, done: prodStepDone('shots') }]
+        : []),
       { key: 'prod:videos', label: '视频生成', desc: '', icon: Video, done: prodStepDone('videos') },
       { key: 'prod:compose', label: '视频合成', desc: '', icon: Layers, done: prodStepDone('compose') },
     ],
@@ -2393,7 +2388,7 @@ function mainStageDone(stageId) {
     if (!sbs.value.length) return false
     const ttsReady = !ttsEligibleCount.value || ttsGeneratedCount.value === ttsEligibleCount.value
     return ttsReady
-      && shotImgCount.value === sbs.value.length
+      && (!shotImageWorkflowEnabled || shotImgCount.value === sbs.value.length)
       && shotVidCount.value === sbs.value.length
       && composedCount.value === sbs.value.length
   }
@@ -2422,7 +2417,10 @@ function goMainStage(stageId) {
   }
   if (stageId === 'storyboard') {
     if (panel.value === 'production') {
-      prodTab.value = ['dubbing', 'shots', 'videos', 'compose'].includes(prodTab.value) ? prodTab.value : 'dubbing'
+      const storyboardTabs = shotImageWorkflowEnabled
+        ? ['dubbing', 'shots', 'videos', 'compose']
+        : ['dubbing', 'videos', 'compose']
+      prodTab.value = storyboardTabs.includes(prodTab.value) ? prodTab.value : 'dubbing'
       return
     }
     panel.value = 'script'
@@ -2451,7 +2449,9 @@ const activeSubSteps = computed(() => {
     return [
       { key: 'script:storyboard', label: '分镜拆解', done: !!sbs.value.length },
       { key: 'prod:dubbing', label: '配音生成', done: !ttsEligibleCount.value || ttsGeneratedCount.value === ttsEligibleCount.value },
-      { key: 'prod:shots', label: '镜头图片', done: !!sbs.value.length && shotImgCount.value === sbs.value.length },
+      ...(shotImageWorkflowEnabled
+        ? [{ key: 'prod:shots', label: '镜头图片', done: !!sbs.value.length && shotImgCount.value === sbs.value.length }]
+        : []),
       { key: 'prod:videos', label: '视频生成', done: !!sbs.value.length && shotVidCount.value === sbs.value.length },
       { key: 'prod:compose', label: '视频合成', done: !!sbs.value.length && composedCount.value === sbs.value.length },
     ]
@@ -2532,11 +2532,13 @@ const pipelineProgress = computed(() => {
   if (rawContent.value) p++
   if (scriptContent.value) p++
   if (chars.value.length) p++
-  if (charsVoiced.value) p++
+  if (chars.value.length && charsVoiced.value === chars.value.length) p++
   if (sbs.value.length) p++
+  const assetsExtracted = !!chars.value.length || !!scenes.value.length
+  if (assetsExtracted && (!visualCharTotal.value || charImgCount.value === visualCharTotal.value)) p++
+  if (assetsExtracted && (!scenes.value.length || sceneImgCount.value === scenes.value.length)) p++
   if (sbs.value.length && (!ttsEligibleCount.value || ttsGeneratedCount.value === ttsEligibleCount.value)) p++
-  if (sbs.value.some(s => s.composed_image || s.composedImage)) p++
-  if (sbs.value.some(s => s.video_url || s.videoUrl)) p++
+  if (sbs.value.length && shotVidCount.value === sbs.value.length) p++
   if (sbs.value.length && composedCount.value === sbs.value.length) p++
   if (mergeUrl.value) p++
   return p
@@ -3042,7 +3044,7 @@ async function genVid(sb) {
   }
   const refs = getVideoReferenceImages(sb)
   if (refs.length) {
-    Object.assign(params, { reference_mode: 'multiple', reference_image_urls: refs })
+    Object.assign(params, { reference_image_urls: refs })
   }
   try {
     delete failedVideoMessages.value[sb.id]
@@ -4135,6 +4137,7 @@ onMounted(async () => {
   background: linear-gradient(135deg, rgba(20,39,82,0.08), rgba(255,255,255,0.68));
   border: 1px solid rgba(27, 41, 64, 0.08);
 }
+.detail-hero.without-shot-images { grid-template-columns: minmax(0, 1fr); }
 .detail-hero-copy { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .detail-hero-label {
   font-size: 10px; font-weight: 700; letter-spacing: 0.12em;

@@ -29,10 +29,6 @@ async function enqueueVideo(body: any) {
     dramaId: body.drama_id,
     prompt: body.prompt,
     model: body.model,
-    referenceMode: body.reference_mode,
-    imageUrl: body.image_url,
-    firstFrameUrl: body.first_frame_url,
-    lastFrameUrl: body.last_frame_url,
     referenceImageUrls: body.reference_image_urls,
     duration: body.duration,
     aspectRatio: body.aspect_ratio,
@@ -58,7 +54,7 @@ app.post('/', async (c) => {
     logTaskStart('VideoAPI', 'generate', {
       storyboardId: body.storyboard_id,
       dramaId: body.drama_id,
-      referenceMode: body.reference_mode,
+      referenceCount: Array.isArray(body.reference_image_urls) ? body.reference_image_urls.length : 0,
       duration: body.duration,
     })
     logTaskPayload('VideoAPI', 'request body', body)

@@ -15,10 +15,6 @@ interface GenerateVideoParams {
   dramaId?: number
   prompt: string
   model?: string
-  referenceMode?: string
-  imageUrl?: string
-  firstFrameUrl?: string
-  lastFrameUrl?: string
   referenceImageUrls?: string[]
   duration?: number
   aspectRatio?: string
@@ -31,6 +27,10 @@ export async function generateVideo(params: GenerateVideoParams): Promise<number
     ? await getConfigById(params.configId)
     : await getActiveConfig('video')
   if (!config) throw new Error('No active video AI config')
+  const submittedReferenceImages = Array.isArray(params.referenceImageUrls) ? params.referenceImageUrls : []
+  const referenceImageUrls = Array.from(new Set(
+    submittedReferenceImages.map(item => String(item || '').trim()).filter(Boolean),
+  )).slice(0, 6)
 
   const [inserted] = await db.insert(schema.videoGenerations).values({
     storyboardId: params.storyboardId,
@@ -39,11 +39,11 @@ export async function generateVideo(params: GenerateVideoParams): Promise<number
     prompt: params.prompt,
     model: params.model || config.model,
     provider: config.provider,
-    referenceMode: params.referenceMode || 'none',
-    imageUrl: params.imageUrl,
-    firstFrameUrl: params.firstFrameUrl,
-    lastFrameUrl: params.lastFrameUrl,
-    referenceImageUrls: params.referenceImageUrls ? JSON.stringify(params.referenceImageUrls) : null,
+    referenceMode: referenceImageUrls.length ? 'multiple' : 'none',
+    imageUrl: null,
+    firstFrameUrl: null,
+    lastFrameUrl: null,
+    referenceImageUrls: referenceImageUrls.length ? JSON.stringify(referenceImageUrls) : null,
     duration: params.duration || 5,
     aspectRatio: params.aspectRatio || '16:9',
     status: 'queued',
@@ -57,7 +57,8 @@ export async function generateVideo(params: GenerateVideoParams): Promise<number
     provider: config.provider,
     storyboardId: params.storyboardId,
     dramaId: params.dramaId,
-    referenceMode: params.referenceMode || 'none',
+    referenceMode: referenceImageUrls.length ? 'multiple' : 'none',
+    referenceCount: referenceImageUrls.length,
     duration: params.duration || 5,
   })
   logTaskPayload('VideoTask', 'enqueue params', {
@@ -93,28 +94,26 @@ export async function processVideoGeneration(id: number) {
     await db.update(schema.videoGenerations)
       .set({ status: 'processing', errorMsg: null, updatedAt: now() })
       .where(eq(schema.videoGenerations.id, id))
+    const resolvedReferenceImageUrls = await normalizeVideoReferenceUrls(record.referenceImageUrls)
+    const effectiveReferenceMode = resolvedReferenceImageUrls.length ? 'multiple' : 'none'
     logTaskProgress('VideoTask', 'build-request', {
       id,
       provider: config.provider,
       storyboardId: record.storyboardId,
-      referenceMode: record.referenceMode,
+      referenceMode: effectiveReferenceMode,
+      referenceCount: resolvedReferenceImageUrls.length,
     })
-
-    const resolvedImageUrl = await normalizeVideoReferenceUrl(record.imageUrl)
-    const resolvedFirstFrameUrl = await normalizeVideoReferenceUrl(record.firstFrameUrl)
-    const resolvedLastFrameUrl = await normalizeVideoReferenceUrl(record.lastFrameUrl)
-    const resolvedReferenceImageUrls = await normalizeVideoReferenceUrls(record.referenceImageUrls)
 
     // 使用 Adapter 构建请求
     const { url, method, headers, body } = adapter.buildGenerateRequest(config, {
       id: record.id,
       model: record.model,
       prompt: record.prompt,
-      referenceMode: record.referenceMode,
-      imageUrl: resolvedImageUrl,
-      firstFrameUrl: resolvedFirstFrameUrl,
-      lastFrameUrl: resolvedLastFrameUrl,
-      referenceImageUrls: resolvedReferenceImageUrls ? JSON.stringify(resolvedReferenceImageUrls) : null,
+      referenceMode: effectiveReferenceMode,
+      imageUrl: null,
+      firstFrameUrl: null,
+      lastFrameUrl: null,
+      referenceImageUrls: resolvedReferenceImageUrls.length ? JSON.stringify(resolvedReferenceImageUrls) : null,
       duration: record.duration,
       aspectRatio: record.aspectRatio,
     })
@@ -124,7 +123,8 @@ export async function processVideoGeneration(id: number) {
       method,
       url: redactUrl(url),
       model: record.model,
-      referenceMode: record.referenceMode,
+      referenceMode: effectiveReferenceMode,
+      referenceCount: resolvedReferenceImageUrls.length,
     })
     logTaskPayload('VideoTask', 'request payload', {
       id,
